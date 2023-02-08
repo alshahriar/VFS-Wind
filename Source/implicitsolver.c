@@ -3288,7 +3288,7 @@ PetscErrorCode ImplicitMomentumSolver(UserCtx *user, IBMNodes *ibm,
     //ibm_interpolation_advanced2(&user[bi], ibm);
     if (immersed && ti>0 ) {
       /*for (ibi=0;ibi<NumberOfBodies;ibi++) */{
-	ibm_interpolation_advanced(&user[bi]);
+         ibm_interpolation_advanced(&user[bi]);
       }
     }
 
@@ -4293,7 +4293,9 @@ PetscErrorCode Implicit_MatrixFree(UserCtx *user, IBMNodes *ibm, FSInfo *fsi)
 	InflowFlux(&(user[bi]));
 	outflow_scale=0;
 	FormBCS(&(user[bi]),&fsi[0]);
-		
+	//if(averaging) {
+    //    ibm_interpolation_advanced_printPressure(&user[bi]);//ASR
+	//}
 	VecCopy(user[bi].Ucont, U);
 		
 	SNESSolve(user[bi].snes, PETSC_NULL, U);

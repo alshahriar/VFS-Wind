@@ -62,6 +62,29 @@ void Contra2Cart_single(Cmpnts &csi, Cmpnts &eta, Cmpnts &zet, Cmpnts &ucont, Cm
 	(*ucat).z = det2 / det;		
 };
 
+/* ASR ??
+void Cart2Contra_single(Cmpnts &csi, Cmpnts &eta, Cmpnts &zet, Cmpnts &ucont, Cmpnts *ucat)
+{
+	double C1,C2,C3,C4,C5,C6,C7,C8,C9;
+	
+	C1 = (eta.y * zet.z - eta.z * zet.y);
+	C2 = (csi.y * zet.z - csi.z * zet.y);
+	C3 = (csi.y * eta.z - csi.z * eta.y);
+	double det0 = ucont.x * C1 - ucont.y * C2 + ucont.z * C3;
+	C4 = (eta.x * zet.z - eta.z * zet.x);
+	C5 = (csi.x * zet.z - csi.z * zet.x);
+	C6 = (csi.x * eta.z - csi.z * eta.x)
+	double det1 = -ucont.x * C4 + ucont.y * C5 - ucont.z * C6;
+	C7 = (eta.x * zet.y - eta.y * zet.x);
+	C8 = (csi.x * zet.y - csi.y * zet.x);
+	C9 = (csi.x * eta.y - csi.y * eta.x);
+	double det2 = ucont.x * C7 - ucont.y * C8 + ucont.z * C9;
+	(*ucat).x = det0 / det;
+	(*ucat).y = det1 / det;
+	(*ucat).z = det2 / det;		
+};
+*/
+
 void Contra2Cart_2(UserCtx *user)
 {
 	DA		da = user->da, fda = user->fda;
@@ -515,14 +538,6 @@ void Contra2Cart_2(UserCtx *user)
 		}
 		
 		if (std::abs(user->bctype[3])==10 && j==my-1 && (i!=0 /*&& i!=mx-1*/ && k!=0 /*&& k!=mz-1*/) ) {
-			/*
-			double ni[3], nj[3], nk[3];
-			double nx, ny, nz;
-			Calculate_normal(csi[k][j-1][i], eta[k][j-1][i], zet[k][j-1][i], ni, nj, nk);
-			nx = nj[0];
-			ny = nj[1];
-			nz = nj[2];
-		*/
 			double g[3][3], G[3][3];
 			g[0][0]=csi[k][j-1][i].x, g[0][1]=csi[k][j-1][i].y, g[0][2]=csi[k][j-1][i].z;
 			g[1][0]=eta[k][j-1][i].x, g[1][1]=eta[k][j-1][i].y, g[1][2]=eta[k][j-1][i].z;
@@ -540,6 +555,49 @@ void Contra2Cart_2(UserCtx *user)
 			ucat[k][j][i].z = lucat_o[k][j-1][i].z - 2 * un * nz;
 		
 			if( nvert[k][j-1][i]>0.1 ) Set(&ucat[k][j][i],0);
+			if(solid_flag) Set(&ucat[k][j][i], 0);
+		}
+		
+		
+		if (user->bctype[4]==10 && k==0 && (j!=0 /*&& j!=my-1*/ && i!=0 /*&& k!=mz-1*/) ) {
+			double g[3][3], G[3][3];
+			g[0][0]=csi[k+1][j][i].x, g[0][1]=csi[k+1][j][i].y, g[0][2]=csi[k+1][j][i].z;
+			g[1][0]=eta[k+1][j][i].x, g[1][1]=eta[k+1][j][i].y, g[1][2]=eta[k+1][j][i].z;
+			g[2][0]=zet[k+1][j][i].x, g[2][1]=zet[k+1][j][i].y, g[2][2]=zet[k+1][j][i].z;
+			
+			Calculate_Covariant_metrics(g, G);
+			double xzet=G[0][0], yzet=G[1][0], zzet=G[2][0];
+			double nx = - xzet, ny = - yzet, nz = - zzet;
+			double sum=sqrt(nx*nx+ny*ny+nz*nz);
+			nx /= sum, ny /= sum, nz /= sum;
+			
+			double un = lucat_o[k+1][j][i].x*nx + lucat_o[k+1][j][i].y*ny + lucat_o[k+1][j][i].z*nz;
+			ucat[k][j][i].x = lucat_o[k+1][j][i].x - 2 * un * nx;
+			ucat[k][j][i].y = lucat_o[k+1][j][i].y - 2 * un * ny;
+			ucat[k][j][i].z = lucat_o[k+1][j][i].z - 2 * un * nz;
+			
+			if( nvert[k+1][j][i]>0.1 ) Set(&ucat[k][j][i],0);
+			if(solid_flag) Set(&ucat[k][j][i], 0);
+		}
+		
+		if (user->bctype[5]==10 && k==mz-1 && (j!=0 /*&& j!=my-1*/ && i!=0 /*&& k!=mz-1*/) ) {
+			double g[3][3], G[3][3];
+			g[0][0]=csi[k-1][j][i].x, g[0][1]=csi[k-1][j][i].y, g[0][2]=csi[k-1][j][i].z;
+			g[1][0]=eta[k-1][j][i].x, g[1][1]=eta[k-1][j][i].y, g[1][2]=eta[k-1][j][i].z;
+			g[2][0]=zet[k-1][j][i].x, g[2][1]=zet[k-1][j][i].y, g[2][2]=zet[k-1][j][i].z;
+			
+			Calculate_Covariant_metrics(g, G);
+			double xzet=G[0][0], yzet=G[1][0], zzet=G[2][0];
+			double nx = xzet, ny = yzet, nz = zzet;
+			double sum=sqrt(nx*nx+ny*ny+nz*nz);
+			nx /= sum, ny /= sum, nz /= sum;
+			
+			double un = lucat_o[k-1][j][i].x*nx + lucat_o[k-1][j][i].y*ny + lucat_o[k-1][j][i].z*nz;
+			ucat[k][j][i].x = lucat_o[k-1][j][i].x - 2 * un * nx;
+			ucat[k][j][i].y = lucat_o[k-1][j][i].y - 2 * un * ny;
+			ucat[k][j][i].z = lucat_o[k-1][j][i].z - 2 * un * nz;
+		
+			if( nvert[k-1][j][i]>0.1 ) Set(&ucat[k][j][i],0);
 			if(solid_flag) Set(&ucat[k][j][i], 0);
 		}
 		
@@ -669,6 +727,7 @@ void Contra2Cart_2(UserCtx *user)
 		  
 		  if ( nvert[k-1][j][i]>0.1 ) Set(&ucat[k][j][i],0);
 		  if (solid_flag) Set(&ucat[k][j][i], 0);
+		  ucat[k][j][i] = lucat[k-1][j][i]; // ASR
 		}
 
 		
@@ -1616,7 +1675,7 @@ extern int outflow_scale;
 	FormBCS(&(user[bi]),&fsi[0]);
 	//PetscPrintf(PETSC_COMM_WORLD, "RK-3\n");
 
-    if (immersed) 
+    if (immersed)
     /*for (ibi=0;ibi<NumberOfBodies;ibi++) */{
       ibm_interpolation_advanced(&user[bi]);
     }

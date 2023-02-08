@@ -833,6 +833,9 @@ PetscErrorCode MG_Finalize(UserMG *usermg)
 		VecDestroy(user[bi].Ucat_square_sum);
 		VecDestroy(user[bi].Ucat_cross_sum);
 		VecDestroy(user[bi].Ucat_sum);
+		VecDestroy(user[bi].Ucat_wx_sum);
+		VecDestroy(user[bi].Ucat_wy_sum);
+		VecDestroy(user[bi].Ucat_wz_sum);
 	}
       VecDestroy(user[bi].Cent);
       VecDestroy(user[bi].Ucont);

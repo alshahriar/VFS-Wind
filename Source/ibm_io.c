@@ -849,57 +849,57 @@ PetscErrorCode ibm_read_ucd(IBMNodes *ibm, PetscInt ibi)
       PetscMalloc(n_v*sizeof(Cmpnts), &(ibm->urm1));
 
       for (i=0; i<n_v; i++) {
-	fscanf(fd, "%i %le %le %le", &ii, &x_bp[i], &y_bp[i], &z_bp[i]);//, &t, &t, &t);
-	
-	x_bp[i] = x_bp[i]*L_dim + CMx_c;//0.25 ;// 24.;	
-	y_bp[i] = y_bp[i]*L_dim + CMy_c ;//+ ibi*2.;//5.;//2.;//8.;//6.;//2.   ;// 24.;
-	z_bp[i] = z_bp[i]*L_dim + CMz_c ;//+ ibi*1.5;//2.;//8.;//15.;//2.   ;// 24.;
-
-	//Beginning of initial rotation
-	double z_bp_,y_bp_,x_bp_;//Temporary variables for initial rotation
-	//Center of rotation (_r) and initial angle (angle_ 0) sfecified at control file
-	// initial rotation around x-axis
-	y_bp_ = y_r + (y_bp[i]-y_r)*cos(angle_x0) - (z_bp[i]-z_r)*sin(angle_x0);
-	z_bp_ = z_r + (y_bp[i]-y_r)*sin(angle_x0) + (z_bp[i]-z_r)*cos(angle_x0);
-	y_bp[i] = y_bp_;
-	z_bp[i] = z_bp_;	
-	// initial rotation around y-axis
-	x_bp_ = x_r + (z_bp[i]-z_r)*sin(angle_y0) + (x_bp[i]-x_r)*cos(angle_y0);		
-	z_bp_ = z_r + (z_bp[i]-z_r)*cos(angle_y0) - (x_bp[i]-x_r)*sin(angle_y0);
-	x_bp[i] = x_bp_;
-	z_bp[i] = z_bp_;
-	// initial rotation around z-axis
-	x_bp_ = x_r + (x_bp[i]-x_r)*cos(angle_z0) - (y_bp[i]-y_r)*sin(angle_z0);
-	y_bp_ = y_r + (x_bp[i]-x_r)*sin(angle_z0) + (y_bp[i]-y_r)*cos(angle_z0);		
-	x_bp[i] = x_bp_;
-	y_bp[i] = y_bp_;
-	//End of initial rotation
-	
-
+		fscanf(fd, "%i %le %le %le", &ii, &x_bp[i], &y_bp[i], &z_bp[i]);//, &t, &t, &t);
 		
-	ibm->x_bp[i] = x_bp[i];
-	ibm->y_bp[i] = y_bp[i];
-	ibm->z_bp[i] = z_bp[i];
+		x_bp[i] = x_bp[i]*L_dim + CMx_c;//0.25 ;// 24.;	
+		y_bp[i] = y_bp[i]*L_dim + CMy_c ;//+ ibi*2.;//5.;//2.;//8.;//6.;//2.   ;// 24.;
+		z_bp[i] = z_bp[i]*L_dim + CMz_c ;//+ ibi*1.5;//2.;//8.;//15.;//2.   ;// 24.;
 
-	ibm->x_bp0[i] = x_bp[i];
-	ibm->y_bp0[i] = y_bp[i];
-	ibm->z_bp0[i] = z_bp[i];
+		//Beginning of initial rotation
+		double z_bp_,y_bp_,x_bp_;//Temporary variables for initial rotation
+		//Center of rotation (_r) and initial angle (angle_ 0) sfecified at control file
+		// initial rotation around x-axis
+		y_bp_ = y_r + (y_bp[i]-y_r)*cos(angle_x0) - (z_bp[i]-z_r)*sin(angle_x0);
+		z_bp_ = z_r + (y_bp[i]-y_r)*sin(angle_x0) + (z_bp[i]-z_r)*cos(angle_x0);
+		y_bp[i] = y_bp_;
+		z_bp[i] = z_bp_;	
+		// initial rotation around y-axis
+		x_bp_ = x_r + (z_bp[i]-z_r)*sin(angle_y0) + (x_bp[i]-x_r)*cos(angle_y0);		
+		z_bp_ = z_r + (z_bp[i]-z_r)*cos(angle_y0) - (x_bp[i]-x_r)*sin(angle_y0);
+		x_bp[i] = x_bp_;
+		z_bp[i] = z_bp_;
+		// initial rotation around z-axis
+		x_bp_ = x_r + (x_bp[i]-x_r)*cos(angle_z0) - (y_bp[i]-y_r)*sin(angle_z0);
+		y_bp_ = y_r + (x_bp[i]-x_r)*sin(angle_z0) + (y_bp[i]-y_r)*cos(angle_z0);		
+		x_bp[i] = x_bp_;
+		y_bp[i] = y_bp_;
+		//End of initial rotation
+		
 
-	ibm->x_bp_o[i] = x_bp[i];
-	ibm->y_bp_o[i] = y_bp[i];
-	ibm->z_bp_o[i] = z_bp[i];
+			
+		ibm->x_bp[i] = x_bp[i];
+		ibm->y_bp[i] = y_bp[i];
+		ibm->z_bp[i] = z_bp[i];
 
-	ibm->u[i].x = 0.;
-	ibm->u[i].y = 0.;
-	ibm->u[i].z = 0.;
+		ibm->x_bp0[i] = x_bp[i];
+		ibm->y_bp0[i] = y_bp[i];
+		ibm->z_bp0[i] = z_bp[i];
 
-	ibm->uold[i].x = 0.;
-	ibm->uold[i].y = 0.;
-	ibm->uold[i].z = 0.;
+		ibm->x_bp_o[i] = x_bp[i];
+		ibm->y_bp_o[i] = y_bp[i];
+		ibm->z_bp_o[i] = z_bp[i];
 
-	ibm->urm1[i].x = 0.;
-	ibm->urm1[i].y = 0.;
-	ibm->urm1[i].z = 0.;
+		ibm->u[i].x = 0.;
+		ibm->u[i].y = 0.;
+		ibm->u[i].z = 0.;
+
+		ibm->uold[i].x = 0.;
+		ibm->uold[i].y = 0.;
+		ibm->uold[i].z = 0.;
+
+		ibm->urm1[i].x = 0.;
+		ibm->urm1[i].y = 0.;
+		ibm->urm1[i].z = 0.;
       }
       i=0;
       PetscPrintf(PETSC_COMM_WORLD, "xyz_bp %le %le %le\n", x_bp[i], y_bp[i], z_bp[i]);

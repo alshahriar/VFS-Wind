@@ -484,6 +484,24 @@ PetscErrorCode Forced_Motion(FSInfo *fsi,PetscReal A, PetscReal dt)
 		fsi->S_new[4]= u*t; //position
 		fsi->S_new[5]= u;		//velocity
 	}
+        else if(fall_cyll_case==2) { // moving at an angle
+                w=.2;
+                fsi->S_new[0]= 0.;
+                fsi->S_new[1]= 0.;
+                fsi->S_new[2]= 0.;
+                fsi->S_new[3]= 0.;
+                fsi->S_new[4]= 0.9*t;
+                fsi->S_new[5]= .9;
+                PetscPrintf(PETSC_COMM_WORLD, "y, dy/dt %le %le %le %le %le %le %le\n",t,fsi->S_new[0],fsi->S_new[1],fsi->S_new[2],fsi->S_new[3],fsi->S_new[4],fsi->S_new[5]);
+                fsi->S_ang_n[4]= 0.;
+                fsi->S_ang_n[5]= 0.;
+                fsi->S_ang_n[2]= 0.;
+                fsi->S_ang_n[3]= 0.;
+                fsi->S_ang_n[4]= 0.;
+                fsi->S_ang_n[5]= 0.;
+          
+        }
+
 	else{
 		w=.2;
 		fsi->S_new[0]= 0.;//A*sin(w*t);

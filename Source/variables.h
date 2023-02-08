@@ -171,16 +171,16 @@ typedef struct {
 	
 	PetscReal *_x_bp, *_y_bp, *_z_bp;	// for rank 0
 	PetscReal *shear, *mean_shear;
-	PetscReal *reynolds_stress1;
-	PetscReal *reynolds_stress2;
-	PetscReal *reynolds_stress3;
-	PetscReal *pressure;
+	PetscReal *reynolds_stress1; //at each element
+	PetscReal *reynolds_stress2; //at each element
+	PetscReal *reynolds_stress3; //at each element
+	PetscReal *pressure; // pressure at each element
 		// add begin (xiaolei)
 	/* for calculating surface force */
 	int	*ib_elmt, *jb_elmt, *kb_elmt; // the lowest interpolation point for element
 	PetscReal	*xb_elmt, *yb_elmt, *zb_elmt; // normal extension from the surface element center
-	PetscReal	*p_elmt;
-	Cmpnts		*tau_elmt;
+	PetscReal	*p_elmt; // only for rotor model
+	Cmpnts		*tau_elmt; // only for rotor model
 
 	// add being (xiaolei)
 	//
@@ -352,7 +352,7 @@ typedef struct UserCtx {
 	PetscReal	r[101], tin[101], uinr[101][1001];
 
 	PetscReal *itfchostx, *itfchosty, *itfchostz;
-	PetscReal FluxInSum, FluxOutSum;
+	PetscReal FluxInSum, FluxInSum_y, FluxInSum_z, FluxOutSum, FluxOutSum_y,FluxOutSum_z;
 
 	PetscErrorCode aotopetsc;
 	PetscTruth assignedA;
@@ -415,6 +415,9 @@ typedef struct UserCtx {
   #endif
 	Vec Ucat_sum;		// sum of u, v, w over time
 	Vec Ucat_cross_sum;	// sum of uv, vw, wu
+	Vec Ucat_wx_sum;	// sum of uomega_x, vomega_x, womega_x
+	Vec Ucat_wy_sum;	// sum of uomega_y, vomega_y, womega_y
+	Vec Ucat_wz_sum;	// sum of uomega_z, vomega_z, womega_z
 	Vec Ucat_square_sum;	// sum of uu, vv, ww
         Vec P_sum;		// sum of p
 	Vec K_sum; // sum of Kinetic energy in RANS
@@ -423,6 +426,7 @@ typedef struct UserCtx {
 	/*Vec P_cross_sum;*/
 	
 	Vec Udp_sum; //size 1; u*dpdx + v*dpdy + w*dpdz
+	Vec Q_sum; // Q-criterion
 	Vec dU2_sum; //size 3; (dui_dx)^2 + (dui_dy)^2 + (dui_dz)^2;  ... (3*3=9 components)
 	Vec UUU_sum; //size 3; (u^2+v^2+w^2)*ui
 	Vec tauS_sum; // size 1; sum of tau_ij Sij = 2 nu_t Sij Sij; tau_ij = +2 nu_t Sij
@@ -543,9 +547,10 @@ typedef struct {
 
 	PetscInt		Clsnbpt_i,Clsnbpt_j,Clsnbpt_k; //Closest Near Bndry Pt to each surf elmt 
 	PetscInt		icell,jcell,kcell;
-	PetscInt		FoundAroundcell;
+	PetscInt		FoundAroundcell, FoundAround2ndCell;
 	PetscInt		Need3rdPoint;
 	//PetscInt      Aroundcellnum;
+	PetscInt		rank;
 } SurfElmtInfo;
 
 typedef struct {
@@ -638,10 +643,13 @@ PetscErrorCode Elmt_Move_FSI_TRANS(FSInfo *FSinfo, IBMNodes *ibm);
 PetscErrorCode ibm_surface_out(IBMNodes *ibm, PetscInt ti, PetscInt ibi);
 PetscErrorCode ibm_search_advanced(UserCtx *user, IBMNodes *ibm, PetscInt ibi);
 PetscErrorCode ibm_interpolation_advanced(UserCtx *user);
+PetscErrorCode ibm_interpolation_advanced_printPressure(UserCtx *user);
 PetscErrorCode fluxin(UserCtx *user);
 PetscErrorCode Struc_Solver(UserMG *usermg,IBMNodes *ibm, FSInfo *fsi, PetscInt itr_sc, PetscInt tistart, PetscTruth *DoSCLoop);
-PetscErrorCode Flow_Solver(UserMG *usermg,IBMNodes *ibm, FSInfo *fsi, PetscInt itr_sc, IBMNodes *wtm, ACL *acl, FSInfo *fsi_wt, IBMNodes *ibm_ACD, FSInfo *fsi_IBDelta,IBMNodes *ibm_IBDelta,
-IBMNodes *ibm_acl2ref, FSInfo *fsi_acl2ref, IBMNodes *ibm_nacelle, FSInfo *fsi_nacelle);
+//PetscErrorCode Flow_Solver(UserMG *usermg,IBMNodes *ibm, FSInfo *fsi, PetscInt itr_sc, IBMNodes *wtm, ACL *acl, FSInfo *fsi_wt, IBMNodes *ibm_ACD, FSInfo *fsi_IBDelta,IBMNodes *ibm_IBDelta,
+//IBMNodes *ibm_acl2ref, FSInfo *fsi_acl2ref, IBMNodes *ibm_nacelle, FSInfo *fsi_nacelle);
+PetscErrorCode Flow_Solver(UserMG *usermg,IBMNodes *ibm, FSInfo *fsi, PetscInt itr_sc, IBMNodes *wtm, ACL *acl, FSInfo *fsi_wt, IBMNodes *ibm_ACD, FSInfo *fsi_IBDelta,IBMNodes *ibm_IBDelta, 
+IBMNodes *ibm_acl2ref, FSInfo *fsi_acl2ref, IBMNodes *ibm_nacelle, FSInfo *fsi_nacelle, SurfElmtInfo *elmtinfo, IBMInfo *fsi_intp);
 PetscErrorCode MG_Finalize(UserMG *usermg);
 PetscErrorCode GhostNodeVelocity(UserCtx *user);
 PetscErrorCode InflowFlux(UserCtx *user) ;
@@ -655,11 +663,50 @@ PetscErrorCode Spectral(UserCtx *user);
 PetscErrorCode Convection(UserCtx *user, Vec Ucont, Vec Ucat, Vec Conv);
 PetscErrorCode Viscous(UserCtx *user, Vec Ucont, Vec Ucat, Vec Visc);
 PetscErrorCode OutflowVelocity(UserCtx *user, Vec Ucont);
-PetscErrorCode Find_fsi_2nd_interp_Coeff(PetscInt i, PetscInt j, PetscInt k, PetscInt elmt, Cmpnts p, IBMInfo *ibminfo,UserCtx *user, IBMNodes *ibm);
+PetscErrorCode Find_fsi_2nd_interp_Coeff(PetscInt foundFlag, PetscInt i, PetscInt j, PetscInt k, PetscInt elmt, Cmpnts p, IBMInfo *ibminfo,UserCtx *user, IBMNodes *ibm);
 PetscErrorCode Find_fsi_2nd_interp_Coeff2(PetscInt i, PetscInt j, PetscInt k, PetscInt elmt, Cmpnts p, IBMInfo *ibminfo, UserCtx *user, IBMNodes *ibm);
 PetscReal detmnt(PetscReal a[3][3]);
 PetscErrorCode MyFieldRestriction(UserCtx *user);
 PetscErrorCode Calc_forces_SI(FSInfo *FSinfo,UserCtx *user, IBMNodes *ibm,PetscInt ti, PetscInt ibi, PetscInt bi);
+//PetscErrorCode Calc_fsi_surf_stress2(IBMInfo *ibminfo, UserCtx *user, IBMNodes *ibm, SurfElmtInfo *elmtinfo); //ASR
+//PetscErrorCode Calc_fsi_surf_stress_advanced(IBMInfo *ibminfo, UserCtx *user, IBMNodes *ibm, SurfElmtInfo *elmtinfo); //ASR
+//PetscErrorCode fsi_interpolation_coeff(UserCtx *user, IBMNodes *ibm, IBMInfo *fsi_intp,SurfElmtInfo *elmtinfo, FSInfo *fsi); //ASR
+//PetscErrorCode linear_intp(Cpt2D p, Cpt2D p1, Cpt2D p2, IBMInfo *ibminfo, PetscInt number,PetscInt nvert);//ASR
+//PetscErrorCode triangle_intpp2_fsi(Cpt2D p, Cpt2D p1, Cpt2D p2, Cpt2D p3, IBMInfo *ibminfo, PetscInt number);//ASR
+PetscInt ISSameSide2D(Cpt2D p, Cpt2D p1, Cpt2D p2, Cpt2D p3);
+PetscTruth ISInsideCell(Cmpnts p, Cmpnts cell[8], PetscReal d[6]);
+PetscErrorCode distance(Cmpnts p1, Cmpnts p2, Cmpnts p3, Cmpnts p4, Cmpnts p, PetscReal *d);
+PetscInt ISPointInTriangle(Cmpnts p, Cmpnts p1, Cmpnts p2, Cmpnts p3, PetscReal nfx, PetscReal nfy, PetscReal nfz);
+PetscErrorCode triangle_2nd_intp_fsi2(Cpt2D p, Cpt2D p1, Cpt2D p2, Cpt2D p3, IBMInfo *ibminfo, PetscInt number);
+PetscErrorCode triangle_intp_fsi(Cpt2D p, Cpt2D p1, Cpt2D p2, Cpt2D p3, IBMInfo *ibminfo, PetscInt number);
+PetscErrorCode triangle_intp2_fsi(Cpt2D p, Cpt2D p1, Cpt2D p2, Cpt2D p3, IBMInfo *ibminfo, PetscInt number);
+PetscErrorCode triangle_intpp2_fsi(Cpt2D p, Cpt2D p1, Cpt2D p2, Cpt2D p3, IBMInfo *ibminfo, PetscInt number);//ASR
+PetscErrorCode triangle_intpp_fsi(Cpt2D p, Cpt2D p1, Cpt2D p2, Cpt2D p3, IBMInfo *ibminfo, PetscInt number);
+PetscErrorCode linear_intp(Cpt2D p, Cpt2D p1, Cpt2D p2, IBMInfo *ibminfo, PetscInt number, PetscInt nvert);
+PetscErrorCode linear_intpp(Cpt2D p, Cpt2D p1, Cpt2D p2, IBMInfo *ibminfo, PetscInt number, PetscInt nvert);
+PetscErrorCode fsi_2nd_InterceptionPoint(Cmpnts p, Cmpnts pc[8], PetscReal nvertpc[8], PetscReal nfx, PetscReal nfy, PetscReal nfz, IBMInfo *ibminfo, PetscInt number, Cmpnts *intp, Cmpnts pOriginal);
+PetscErrorCode GridCellaround2ndElmt(UserCtx *user, IBMNodes *ibm, Cmpnts pc,PetscInt elmt, PetscInt knbn,PetscInt jnbn, PetscInt inbn, PetscInt *kin, PetscInt *jin, PetscInt *iin,PetscInt *foundFlag);
+PetscErrorCode fsi_InterceptionPoint(Cmpnts p, Cmpnts pc[8], PetscReal nvertpc[8], PetscReal nfx, PetscReal nfy, PetscReal nfz, IBMInfo *ibminfo, PetscInt number, Cmpnts *intp, PetscInt *Need3rdPoint);
+PetscErrorCode fsi_InterceptionPoint2(Cmpnts p, Cmpnts pc[8], PetscReal nvertpc[8], PetscReal nfx, PetscReal nfy, PetscReal nfz, IBMInfo *ibminfo, PetscInt number);
+PetscErrorCode Find_fsi_interp_Coeff(IBMInfo *ibminfo, UserCtx *user, IBMNodes *ibm, SurfElmtInfo *elmtinfo);
+PetscErrorCode Find_fsi_interp_Coeff2(IBMInfo *ibminfo, UserCtx *user, IBMNodes *ibm, SurfElmtInfo *elmtinfo);
+PetscErrorCode GridCellaroundSurElmt(UserCtx *user, IBMNodes *ibm,SurfElmtInfo *elmtinfo);
+PetscErrorCode GridCellaroundSurElmt2(UserCtx *user, IBMNodes *ibm,SurfElmtInfo *elmtinfo);
+PetscErrorCode Closest_NearBndryPt_ToSurfElmt(UserCtx *user, IBMNodes *ibm, SurfElmtInfo *elmtinfo, FSInfo *fsi, PetscInt ibi);
+PetscErrorCode Closest_NearBndryPt_ToSurfElmt2(UserCtx *user, IBMNodes *ibm, SurfElmtInfo *elmtinfo, FSInfo *fsi, PetscInt ibi);
+PetscErrorCode fsi_interpolation_coeff(UserCtx *user, IBMNodes *ibm, IBMInfo *fsi_intp, SurfElmtInfo *elmtinfo, FSInfo *fsi); //ASR
+PetscErrorCode fsi_interpolation_coeff_fsi(UserCtx *user, IBMNodes *ibm, FSInfo *fsi);
+PetscErrorCode fsi_interpolation_coeff2(UserCtx *user, IBMNodes *ibm, IBMInfo *fsi_intp, SurfElmtInfo *elmtinfo, FSInfo *fsi); //ASR
+PetscErrorCode fsi_interpolation_coeff3(UserCtx *user, IBMNodes *ibm, IBMInfo *fsi_intp, SurfElmtInfo *elmtinfo, FSInfo *fsi); //ASR
+PetscErrorCode fsi_interpolation_coeff4(UserCtx *user, IBMNodes *ibm, IBMInfo *fsi_intp, SurfElmtInfo *elmtinfo, FSInfo *fsi); //ASR
+PetscErrorCode fsi_interpolation_coeff5(UserCtx *user, IBMNodes *ibm, IBMInfo *fsi_intp, SurfElmtInfo *elmtinfo, FSInfo *fsi); //ASR
+
+PetscErrorCode Calc_fsi_surf_stress2(IBMInfo *ibminfo, UserCtx *user, IBMNodes *ibm, SurfElmtInfo *elmtinfo); //ASR
+PetscErrorCode Calc_fsi_surf_stress_advanced(IBMInfo *ibminfo, UserCtx *user, IBMNodes *ibm, SurfElmtInfo *elmtinfo); //ASR
+PetscErrorCode fsiDataForPostProcessing(IBMInfo *ibminfo, UserCtx *user, IBMNodes *ibm, SurfElmtInfo *elmtinfo); //ASR
+
+
+
 PetscErrorCode Calc_FSI_pos_SC(FSInfo *FSinfo,IBMNodes *ibm, PetscReal dt, PetscReal dtime, PetscReal Re);
 PetscErrorCode Forced_Motion(FSInfo *fsi,PetscReal A, PetscReal dt);
 PetscErrorCode SwingCylinder(FSInfo *fsi, IBMNodes *ibm);
@@ -994,6 +1041,9 @@ extern PetscInt SpongeDistance;
 
 extern PetscInt MoveCylinderTest;
 
+extern PetscReal angularInflowFlag;
+extern PetscReal u_angleInX_wrt_z,u_angleInY_wrt_z;
+
 double DDelta(double p, double dx);
 
 extern PetscErrorCode disk_read_ucd(IBMNodes *ibm, int ibi, FSInfo *fsi, int OneDmZ, char fname[80], double reflength);
@@ -1287,7 +1337,7 @@ extern double sloshing_a, sloshing_b, sloshing_d;
 extern int export_FS_elev_center;
 extern int export_FS_elev;
 
-extern PetscReal FluxInSum, FluxOutSum;
+extern PetscReal FluxInSum, FluxInSum_y, FluxInSum_z, FluxOutSum, FluxOutSum_y,FluxOutSum_z;
 extern PetscReal FluxInSum_gas, FluxOutSum_gas;
 extern PetscTruth inlet_y_flag, inlet_z_flag;
 extern int ibm_search;

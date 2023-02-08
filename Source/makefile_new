@@ -23,7 +23,8 @@
 sinclude makefile.local
 
 # Set default values
-ACML ?= /opt/rcc/gnu/lib64/
+ACML ?= 
+##/safl/software/x86_64/acml/4.4.0/gfortran64
 PETSC ?= /mnt/lustre2/fsotiropoulos/cald0075/system/petsc-3.1
 HYPRE ?= /mnt/lustre2/fsotiropoulos/cald0075/system/petsc-3.1
 TEC360HOME ?= /usr
@@ -41,13 +42,10 @@ TECLIB=$(TEC360HOME)/lib
 TECPLOT_FOUND=$(shell for line in '\#include "TECIO.h"' 'main(){}' ; do echo $$line ; done | $(MPICXX) -xc++ -I $(TECINC) -L $(TECLIB) -L./ -ltecio -o /dev/null - 2> /dev/null && echo 1 || echo -1)
 
 # ACML library paths
-ACMLLIB=${ACML}/libblas64.a
+ACMLLIB=$(ACML)/lib
+$(info $$ACMLLIB is [${ACMLLIB}])
 ACML_FOUND=1
 # $(shell for line in 'main(){}' ; do echo $$line ; done | $(MPICXX) -xc++ -L $(ACMLLIB) -lacml -o /dev/null - 2> /dev/null && echo 1 || echo -1)
-
-# for line in 'main(){}' ; do echo $$line ; done | mpicxx -xc++ -L /gpfs/research/mecfd/SourceCodes/acml/installE/gfortran64/lib -lacml -o /dev/null - 2> /dev/null && echo 1 || echo -1
-# gcc -c -I/gpfs/research/mecfd/SourceCodes/acml/newASRACMLInstall/install/gfortran64/include  dataASR.c -o dataASR.o
-# gcc  dataASR.o  /gpfs/research/mecfd/SourceCodes/acml/newASRACMLInstall/install/gfortran64/lib/libacml.a -lgfortran -lm -lrt -ldl -o dataASR.exe
 
 # Hypre library and include paths
 HYPRELIB = $(HYPRE)/lib
@@ -76,10 +74,8 @@ endif
 
 LIBDIR=-L$(ACMLLIB) -L$(PETSCLIB) -L$(TECLIB) -L$(HYPRELIB) -L./
 
-LIBFLAG	=	-lpthread -lrt -ldl -lstdc++ -lX11 \
-		-lpetsc -lHYPRE -mkl -lgfortran -g
-# 		-lpetsc -lHYPRE -lacml -lgfortran -g 
-#		-lpetsc -lHYPRE -llapack -lm -lblas -lgfortran -g
+LIBFLAG	=	 -ldl \
+		-lpetsc -lHYPRE -lacml 
 
 SOURCEC	=	bcs.c bmv.c compgeom.c ibm.c ibm_io.c init.c \
 		main.c metrics.c poisson.c rhs.c timeadvancing.c \
@@ -92,12 +88,13 @@ OBJSC	=	$(SOURCEC:%.c=%.o)
 
 ALLSRC = $(wildcard *.c)
 
-CPPFLAGS =	-DNDEBUG -I$(PETSCINC) -I$(TECINC) -I$(HYPREINC) -O3 -MMD -MP
-CPPFLAGS_POST = -parallel -par-report3
+CPPFLAGS =     -I$(PETSCINC) -I$(TECINC) -I$(HYPREINC) -O0 -g -traceback -fstack-security-check    
+#CPPFLAGS =	-I$(PETSCINC) -I$(TECINC) -I$(HYPREINC) -g -ggdb 
 
 
-ifeq ($(USE_TECPLOT), 1)
-    $(info $$USE_TECPLOT is [${USE_TECPLOT}])
+
+ifeq  ($(USE_TECPLOT), 1)
+        $(info $$USE_TECPLOT is [${USE_TECPLOT}])
 	CPPFLAGS += -DTECIO
 	LIBTECPLOT = -ltecio
 endif
@@ -115,13 +112,16 @@ endif
 ifneq ($(PETSC_VERSION), 3.1)
 	$(error PETSC version not supported. Your version is $(PETSC_VERSION) whereas it should be 3.1)
 endif
+ifeq ($(ACML_FOUND), -1)
+	$(error ACML not found. Please set your ACML variable correctly. It is currently set to: "$(ACML)")
+endif
 ifeq ($(HYPRE_FOUND), -1)
 	$(error HYPRE not found. Please set your HYPRE variable correctly. It is currently set to: "$(HYPRE)")
 endif
 
 tecplottest:
 ifeq ($(TECPLOT_FOUND), -1)
-ifeq ($(USE_TECPLOT), 1)
+ifeq  ($(USE_TECPLOT), 1)
 	$(error TECPLOT not found. Please set your TEC360HOME variable correctly or do not set USE_TECPLOT. The variable is currently set to: "$(TEC360HOME)")
 endif
 endif
@@ -131,17 +131,13 @@ vwis: tests $(OBJSC)
 	$(MPICXX) -o vwis $(OBJSC) $(CPPFLAGS) $(LIBDIR) $(LIBFLAG)
 
 data: tests tecplottest data.o
-#	$(MPICXX) -o data data.o $(CPPFLAGS) $(CPPFLAGS_POST) $(LIBDIR) $(LIBFLAG) $(LIBTECPLOT)
 	$(MPICXX) -o data data.o $(CPPFLAGS) $(LIBDIR) $(LIBFLAG) $(LIBTECPLOT)
-	
+
 data05: tests tecplottest data05.o
 	$(MPICXX) -o data05 data05.o $(CPPFLAGS) $(LIBDIR) $(LIBFLAG) $(LIBTECPLOT)
-
-dataASR: tests tecplottest dataASR.o
-	$(MPICXX) -o dataASR dataASR.o $(CPPFLAGS) $(LIBDIR) $(LIBFLAG) $(LIBTECPLOT)
 	
-dataASR2: tests tecplottest dataASR2.o
-	$(MPICXX) -o dataASR2 dataASR2.o $(CPPFLAGS) $(LIBDIR) $(LIBFLAG) $(LIBTECPLOT)	
+dataASR: tests tecplottest dataASR.o
+	$(MPICXX) -o dataASR dataASR.o $(CPPFLAGS) $(CPPFLAGS_POST) $(LIBDIR) $(LIBFLAG) $(LIBTECPLOT)	
 
 itfcsearch: tests itfcsearch.o
 	$(MPICXX) -o itfcsearch itfcsearch.o $(CPPFLAGS) $(LIBDIR) $(LIBFLAG)
@@ -150,7 +146,7 @@ shear: tests tecplottest shear.o
 	$(MPICXX) -o csashear shear.o $(CPPFLAGS) $(LIBDIR) $(LIBFLAG) $(LIBTECPLOT)
 
 clean:
-	rm -f *.o *\~  Momt* Force* surface* Distance*.dat* *_0.dat test1
+	rm -f *.o *\~  Momt* Force* surface* Distance*.dat* *_0.dat test1 *.d
 
 .PHONY: clean
 

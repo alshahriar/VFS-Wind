@@ -985,7 +985,13 @@ PetscErrorCode Formfunction_2(UserCtx *user, Vec Rhs, double scale)
 		double ucon = ucont[k][j][i].y;
 		if(j_periodic && (j==0 || j==my-2) )  ucon = ucont[k][my-2][i].y;
 		else if(jj_periodic && j==0)  ucon = ucont[k][-2][i].y;
-		
+
+                // ASR 
+                if(j==my-2 && user->bctype[3]==4 && (int)nvert[k][j][i]==0) {
+                     	ucon = ucont[k][j-1][i].y;
+                  }
+                
+                
 		double up = - 0.5 * ( ucon + fabs(ucon) );
 		double um = - 0.5 * ( ucon - fabs(ucon) );
 		

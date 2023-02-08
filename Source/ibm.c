@@ -11,6 +11,7 @@
 #include "time.h"
 extern PetscInt thin, block_number,inviscid, sediment;
 extern PetscInt NumberOfBodies, moveframe, wallfunction;
+extern PetscInt tiout; // ASR
 
 PetscErrorCode BoundingSphere(IBMNodes *ibm);
 PetscErrorCode nearestcell1(Cmpnts p, IBMNodes *ibm, IBMInfo *ibminfo);
@@ -348,7 +349,7 @@ PetscErrorCode ibm_search_advanced(UserCtx *user, IBMNodes *ibm,
 	}
 	
 	PetscBarrier(PETSC_NULL);
-	PetscPrintf(PETSC_COMM_WORLD, "test11\n");
+	//PetscPrintf(PETSC_COMM_WORLD, "test11\n");
 	
 	PetscReal	***nvert_o;
 	DAVecGetArray(da, user->lNvert_o, &nvert_o);
@@ -3592,10 +3593,10 @@ PetscErrorCode ibm_interpolation_advanced(UserCtx *user)
 					ibm->reynolds_stress1[i] /= (double)ibm->count[i];
 					ibm->reynolds_stress2[i] /= (double)ibm->count[i];
 					ibm->reynolds_stress3[i] /= (double)ibm->count[i];
-					ibm->pressure[i] /= (double)ibm->count[i];
+					ibm->pressure[i] /= (double)ibm->count[i]; 
 				}
-			}
-		}
+			}	
+	}
 		
 		
 		DAVecRestoreArray(fda, user->Ucat, &ucat);	//
@@ -3925,4 +3926,498 @@ PetscErrorCode ibm_interpolation_advanced_fsi(UserCtx *user)
   DAGlobalToLocalEnd(da, user->P, INSERT_VALUES, user->lP);
   
   return(0);
+}
+
+
+// ASR
+PetscErrorCode  ibm_interpolation_advanced_printPressure(UserCtx *user)
+{ 
+/*
+	if(movefsi || rotatefsi) {
+		ibm_interpolation_advanced_fsi(user);
+		return 0;
+	}*/
+	
+	DA	da = user->da, fda = user->fda;
+	Cmpnts	***ucont;
+	int ibi;
+	
+	DALocalInfo	info = user->info;
+	PetscInt	xs = info.xs, xe = info.xs + info.xm;
+	PetscInt  	ys = info.ys, ye = info.ys + info.ym;
+	PetscInt	zs = info.zs, ze = info.zs + info.zm;
+	PetscInt	mx = info.mx, my = info.my, mz = info.mz;
+
+	Cmpnts	***icsi, ***jeta, ***kzet;
+	Cmpnts	***csi, ***eta, ***zet;
+	Cmpnts	***ucat, ***lucat;
+	PetscReal ***nvert, ***p, ***lp;
+	PetscReal ***level, ***llevel, ***rho, ***lrho, ***mu, ***lmu;
+	PetscReal ucx, ucy, ucz;
+	PetscInt	lxs, lxe, lys, lye, lzs, lze;
+	PetscReal lhs[3][3], rhs_l[3][3];
+	
+	Vec lUcat_sum, lUcat_cross_sum, lUcat_square_sum;
+	Vec Density, Mu;
+	
+	Cmpnts ***usum, ***u1sum, ***u2sum;
+	double N=(double)ti-1.0;
+
+	lxs = xs; lxe = xe;
+	lys = ys; lye = ye;
+	lzs = zs; lze = ze;
+
+	if (xs==0) lxs = xs+1;
+	if (ys==0) lys = ys+1;
+	if (zs==0) lzs = zs+1;
+
+	if (xe==mx) lxe = xe-1;
+	if (ye==my) lye = ye-1;
+	if (ze==mz) lze = ze-1;
+
+	IBMListNode *current;
+	
+	PetscReal ***ustar, ***aj;
+	
+	if(averaging) {
+		VecDuplicate (user->lUcat, &lUcat_sum);
+		VecDuplicate (user->lUcat, &lUcat_cross_sum);
+		VecDuplicate (user->lUcat, &lUcat_square_sum);
+		
+		DAGlobalToLocalBegin(fda, user->Ucat_sum, INSERT_VALUES, lUcat_sum);
+		DAGlobalToLocalEnd(fda, user->Ucat_sum, INSERT_VALUES, lUcat_sum);
+		
+		DAGlobalToLocalBegin(fda, user->Ucat_cross_sum, INSERT_VALUES, lUcat_cross_sum);
+		DAGlobalToLocalEnd(fda, user->Ucat_cross_sum, INSERT_VALUES, lUcat_cross_sum);
+
+		DAGlobalToLocalBegin(fda, user->Ucat_square_sum, INSERT_VALUES, lUcat_square_sum);
+		DAGlobalToLocalEnd(fda, user->Ucat_square_sum, INSERT_VALUES, lUcat_square_sum);
+				
+		DAVecGetArray(fda, lUcat_sum, &usum);
+		DAVecGetArray(fda, lUcat_cross_sum, &u1sum);
+		DAVecGetArray(fda, lUcat_square_sum, &u2sum);
+	}
+	
+	if(levelset) {
+		VecDuplicate(user->P, &Density);
+		VecDuplicate(user->P, &Mu);
+		
+		DALocalToGlobal (da, user->lDensity, INSERT_VALUES, Density);
+		DALocalToGlobal (da, user->lMu, INSERT_VALUES, Mu);
+
+		DAVecGetArray(da, user->Levelset, &level);
+		DAVecGetArray(da, user->lLevelset, &llevel);
+		DAVecGetArray(da, Density, &rho);
+		DAVecGetArray(da, Mu, &mu);
+		DAVecGetArray(da, user->lDensity, &lrho);
+		DAVecGetArray(da, user->lMu, &lmu);
+	}
+	
+	
+	DAVecGetArray(da, user->lAj, &aj);
+	DAVecGetArray(da, user->lUstar, &ustar);
+	DAVecGetArray(fda, user->lCsi, &csi);
+	DAVecGetArray(fda, user->lEta, &eta);
+	DAVecGetArray(fda, user->lZet, &zet);
+	DAVecGetArray(fda, user->lICsi, &icsi);
+	DAVecGetArray(fda, user->lJEta, &jeta);
+	DAVecGetArray(fda, user->lKZet, &kzet);
+	DAVecGetArray(da, user->lNvert, &nvert);
+
+	int tmp_max=1;
+	for(int tmp=0; tmp<tmp_max; tmp++) { //tmp_begin
+		
+		DAVecGetArray(fda, user->Ucat, &ucat);
+		DAVecGetArray(fda, user->lUcat, &lucat);
+		DAVecGetArray(da, user->P, &p);
+		DAVecGetArray(da, user->lP, &lp);
+		
+		for(ibi=0; ibi<NumberOfBodies; ibi++) {
+			current = user->ibmlist[ibi].head;
+			extern IBMNodes *ibm_ptr;
+			IBMNodes *ibm = &ibm_ptr[ibi];
+			
+			for(int i=0; i<ibm->n_elmt; i++) {
+				ibm->count[i] = 0;
+				ibm->shear[i] = 0;
+				ibm->mean_shear[i] = 0;
+				ibm->reynolds_stress1[i] = 0;
+				ibm->reynolds_stress2[i] = 0;
+				ibm->reynolds_stress3[i] = 0;
+				ibm->pressure[i] = 0;
+			}
+			
+			while (current) {
+				PetscInt i,j,k;
+				Cmpnts Ua, Uc;
+				double ustar_avg=0;
+				double reynolds1=0;
+				double reynolds2=0;
+				double reynolds3=0;
+				double pressure=0;
+				
+				const double ren = user->ren;
+				
+				IBMInfo *ibminfo = &current->ibm_intp;
+				current = current->next;
+					
+				int ni = ibminfo->cell;
+				int ip1 = ibminfo->i1, jp1 = ibminfo->j1, kp1 = ibminfo->k1;
+				int ip2 = ibminfo->i2, jp2 = ibminfo->j2, kp2 = ibminfo->k2;
+				int ip3 = ibminfo->i3, jp3 = ibminfo->j3, kp3 = ibminfo->k3;
+				i = ibminfo->ni, j= ibminfo->nj, k = ibminfo->nk;
+					
+				double sb = ibminfo->d_s, sc = sb + ibminfo->d_i;
+				double sk1  = ibminfo->cr1, sk2 = ibminfo->cr2, sk3 = ibminfo->cr3;
+				double cs1 = ibminfo->cs1, cs2 = ibminfo->cs2, cs3 = ibminfo->cs3;
+				double nfx = ibm->nf_x[ni], nfy = ibm->nf_y[ni], nfz = ibm->nf_z[ni];
+				
+							
+				if (ni>=0) {
+					Ua.x = ibm->u[ibm->nv1[ni]].x * cs1 + ibm->u[ibm->nv2[ni]].x * cs2 + ibm->u[ibm->nv3[ni]].x * cs3;
+					Ua.y = ibm->u[ibm->nv1[ni]].y * cs1 + ibm->u[ibm->nv2[ni]].y * cs2 + ibm->u[ibm->nv3[ni]].y * cs3;
+					Ua.z = ibm->u[ibm->nv1[ni]].z * cs1 + ibm->u[ibm->nv2[ni]].z * cs2 + ibm->u[ibm->nv3[ni]].z * cs3;
+				}
+				else {
+					Ua.x = Ua.y = Ua.z = 0;
+				}
+				
+				Uc.x = (lucat[kp1][jp1][ip1].x * sk1 + lucat[kp2][jp2][ip2].x * sk2 +lucat[kp3][jp3][ip3].x * sk3);
+				Uc.y = (lucat[kp1][jp1][ip1].y * sk1 + lucat[kp2][jp2][ip2].y * sk2 + lucat[kp3][jp3][ip3].y * sk3);
+				Uc.z = (lucat[kp1][jp1][ip1].z * sk1 + lucat[kp2][jp2][ip2].z * sk2 + lucat[kp3][jp3][ip3].z * sk3);
+				
+				if ( !movefsi && !rotatefsi && !inviscid && nvert[kp1][jp1][ip1] + nvert[kp2][jp2][ip2] + nvert[kp3][jp3][ip3] > 0.1 ) {
+					Set ( &ucat[k][j][i], 0 );
+					ustar[k][j][i]=0;
+				}
+				else if ( nvert[k][j][i]>2.9 ) {
+				  Set ( &ucat[k][j][i], 0 );
+				  ustar[k][j][i]=0;
+				}
+				else if(inviscid && !wallfunction) {
+					freeslip (user, sc, sb, Ua, Uc, &ucat[k][j][i], ibm->nf_x[ni], ibm->nf_y[ni], ibm->nf_z[ni]);
+				}
+				else if(wallfunction && ti>0) {
+					if(levelset) {
+						if(1==1 /*llevel[kp1][jp1][ip1]>0 || llevel[kp2][jp2][ip2]>0 || llevel[kp3][jp3][ip3]>0*/) {
+						  /*if( rough_set && ibi==0 ) wall_function_roughness (mu_water/rho_water, roughness_size, sc, sb, Ua, Uc, &ucat[k][j][i], &ustar[k][j][i], ibm->nf_x[ni], ibm->nf_y[ni], ibm->nf_z[ni]);
+						    else*/ wall_function (mu_water/rho_water, sc, sb, Ua, Uc, &ucat[k][j][i], &ustar[k][j][i], ibm->nf_x[ni], ibm->nf_y[ni], ibm->nf_z[ni]);
+						}
+						else {
+							wall_function (mu_air/rho_air, sc, sb, Ua, Uc, &ucat[k][j][i], &ustar[k][j][i], ibm->nf_x[ni], ibm->nf_y[ni], ibm->nf_z[ni]);
+							Set ( &ucat[k][j][i], 0 );
+						}
+					}
+					else {
+					  if(rough_set && ibi==0/*&& i!=1 && i!=mx-2 && j!=1 && j!=my-2 && k!=1 && k!=mz-2*/){
+					    wall_function_roughness (1./ren, roughness_size, sc, sb, Ua, Uc, 
+										 &ucat[k][j][i], &ustar[k][j][i], ibm->nf_x[ni], ibm->nf_y[ni], ibm->nf_z[ni]);
+					  }
+					  else wall_function (1./ren, sc, sb, Ua, Uc, &ucat[k][j][i], &ustar[k][j][i], ibm->nf_x[ni], ibm->nf_y[ni], ibm->nf_z[ni]);
+					}
+				}
+				else  {
+					noslip (user, sc, sb, Ua, Uc, &ucat[k][j][i], &ustar[k][j][i], ibm->nf_x[ni], ibm->nf_y[ni], ibm->nf_z[ni]);
+				}
+				
+				if(averaging) {
+					Cmpnts tmp;
+					Cmpnts Uc_avg;
+					double _sk1=sk1, _sk2=sk2, _sk3=sk3;
+					
+					Uc_avg.x = (usum[kp1][jp1][ip1].x * _sk1 + usum[kp2][jp2][ip2].x * _sk2 + usum[kp3][jp3][ip3].x * _sk3) / N;
+					Uc_avg.y = (usum[kp1][jp1][ip1].y * _sk1 + usum[kp2][jp2][ip2].y * _sk2 + usum[kp3][jp3][ip3].y * _sk3) / N;
+					Uc_avg.z = (usum[kp1][jp1][ip1].z * _sk1 + usum[kp2][jp2][ip2].z * _sk2 + usum[kp3][jp3][ip3].z * _sk3) / N;
+					
+					if(wallfunction) wall_function (1./ren, sc, sb, Ua, Uc_avg, &tmp, &ustar_avg, ibm->nf_x[ni], ibm->nf_y[ni], ibm->nf_z[ni]);
+					else noslip (user, sc, sb, Ua, Uc_avg, &tmp, &ustar_avg, ibm->nf_x[ni], ibm->nf_y[ni], ibm->nf_z[ni]);
+					
+					double U = usum[k][j][i].x/N;
+					double V = usum[k][j][i].y/N;
+					double W = usum[k][j][i].z/N;
+					double uu = ( u2sum[k][j][i].x/N - U*U );
+					double vv = ( u2sum[k][j][i].y/N - V*V );
+					double ww = ( u2sum[k][j][i].z/N - W*W );
+					double uv = u1sum[k][j][i].x/N - U*V;
+					double vw = u1sum[k][j][i].y/N - V*W;
+					double uw = u1sum[k][j][i].z/N - W*U;
+					
+					U = (usum[kp1][jp1][ip1].x * _sk1 + usum[kp2][jp2][ip2].x * _sk2 + usum[kp3][jp3][ip3].x * _sk3)/N;
+					V = (usum[kp1][jp1][ip1].y * _sk1 + usum[kp2][jp2][ip2].y * _sk2 + usum[kp3][jp3][ip3].y * _sk3)/N;
+					W = (usum[kp1][jp1][ip1].z * _sk1 + usum[kp2][jp2][ip2].z * _sk2 + usum[kp3][jp3][ip3].z * _sk3)/N;
+					uu = (u2sum[kp1][jp1][ip1].x * _sk1 + u2sum[kp2][jp2][ip2].x * _sk2 + u2sum[kp3][jp3][ip3].x * _sk3)/N - U*U;
+					vv = (u2sum[kp1][jp1][ip1].y * _sk1 + u2sum[kp2][jp2][ip2].y * _sk2 + u2sum[kp3][jp3][ip3].y * _sk3)/N - V*V;
+					ww = (u2sum[kp1][jp1][ip1].z * _sk1 + u2sum[kp2][jp2][ip2].z * _sk2 + u2sum[kp3][jp3][ip3].z * _sk3)/N - W*W;
+					uv = (u1sum[kp1][jp1][ip1].x * _sk1 + u1sum[kp2][jp2][ip2].x * _sk2 + u1sum[kp3][jp3][ip3].x * _sk3)/N - U*V;
+					vw = (u1sum[kp1][jp1][ip1].y * _sk1 + u1sum[kp2][jp2][ip2].y * _sk2 + u1sum[kp3][jp3][ip3].y * _sk3)/N - V*W;
+					uw = (u1sum[kp1][jp1][ip1].z * _sk1 + u1sum[kp2][jp2][ip2].z * _sk2 + u1sum[kp3][jp3][ip3].z * _sk3)/N - W*U;
+
+					double UV = Contravariant_Reynolds_stress(uu, uv, uw, vv, vw, ww,	
+								csi[k][j][i].x, csi[k][j][i].y, csi[k][j][i].z, eta[k][j][i].x, eta[k][j][i].y, eta[k][j][i].z);
+					double VW = Contravariant_Reynolds_stress(uu, uv, uw, vv, vw, ww,	
+								eta[k][j][i].x, eta[k][j][i].y, eta[k][j][i].z, zet[k][j][i].x, zet[k][j][i].y, zet[k][j][i].z);
+					double WU = Contravariant_Reynolds_stress(uu, uv, uw, vv, vw, ww,	
+								csi[k][j][i].x, csi[k][j][i].y, csi[k][j][i].z, zet[k][j][i].x, zet[k][j][i].y, zet[k][j][i].z);
+					reynolds1 = UV;
+					reynolds2 = VW;
+					reynolds3 = WU;
+				}
+				
+				double cv1 = lp[kp1][jp1][ip1];
+				double cv2 = lp[kp2][jp2][ip2];
+				double cv3 = lp[kp3][jp3][ip3];
+		
+				p[k][j][i] = (cv1 * sk1 + cv2 * sk2 + cv3 * sk3);
+				
+				
+
+				
+				PetscReal Ua_n, Ua_nold;
+				
+
+				if (ni>=0) {
+					Cmpnts Ua;
+					
+					Ua.x = ibm->uold[ibm->nv1[ni]].x * cs1 + ibm->uold[ibm->nv2[ni]].x * cs2 + ibm->uold[ibm->nv3[ni]].x * cs3;
+					Ua.y = ibm->uold[ibm->nv1[ni]].y * cs1 + ibm->uold[ibm->nv2[ni]].y * cs2 + ibm->uold[ibm->nv3[ni]].y * cs3;
+					Ua.z = ibm->uold[ibm->nv1[ni]].z * cs1 + ibm->uold[ibm->nv2[ni]].z * cs2 + ibm->uold[ibm->nv3[ni]].z * cs3;
+					
+					Ua_nold= Ua.x*nfx + Ua.y*nfy + Ua.z*nfz;
+					
+					Ua.x = ibm->u[ibm->nv1[ni]].x * cs1 + ibm->u[ibm->nv2[ni]].x * cs2 + ibm->u[ibm->nv3[ni]].x * cs3;
+					Ua.y = ibm->u[ibm->nv1[ni]].y * cs1 + ibm->u[ibm->nv2[ni]].y * cs2 + ibm->u[ibm->nv3[ni]].y * cs3;
+					Ua.z = ibm->u[ibm->nv1[ni]].z * cs1 + ibm->u[ibm->nv2[ni]].z * cs2 + ibm->u[ibm->nv3[ni]].z * cs3;
+					
+					Ua_n= Ua.x*nfx + Ua.y*nfy + Ua.z*nfz;
+				}
+				else {
+					Ua_n = 0; Ua_nold = 0.;
+				}
+				      
+				if((movefsi || rotatefsi) && !levelset) {
+					p[k][j][i] += (Ua_n - Ua_nold) / user->dt * (sc-sb);
+				}
+				if((movefsi || rotatefsi) && levelset){
+					//p[k][j][i] += rho[k][j][i]*(Ua_n - Ua_nold) / user->dt * (sc-sb)+rho[k][j][i]*nfz*(sc-sb)*9.81;
+					double rho_   =   lrho[kp1][jp1][ip1]*sk1   +   lrho[kp2][jp2][ip2]*sk2   +   lrho[kp3][jp3][ip3]*sk3;
+					p[k][j][i] += rho_*(Ua_n - Ua_nold) / user->dt * (sc-sb)+rho_*nfz*(sc-sb)*(-gravity_z)+rho_*nfy*(sc-sb)*(-gravity_y);
+				}
+				
+				//if ( fabs(ustar[k][j][i])>1.e-10 ) 
+				if(tmp==tmp_max-1)
+				{
+					ibm->count[ni] ++;
+					ibm->shear[ni] += ustar[k][j][i]*ustar[k][j][i];
+					ibm->mean_shear[ni] += ustar_avg*ustar_avg;
+					ibm->reynolds_stress1[ni] += reynolds1;
+					ibm->reynolds_stress2[ni] += reynolds2;
+					ibm->reynolds_stress3[ni] += reynolds3;
+					ibm->pressure[ni] += p[k][j][i];
+				}
+				
+			}
+			
+			for(int i=0; i<ibm->n_elmt; i++) {
+				if( ibm->count[i] ) {
+					ibm->shear[i] /= (double)ibm->count[i];
+					ibm->mean_shear[i] /= (double)ibm->count[i];
+					ibm->reynolds_stress1[i] /= (double)ibm->count[i];
+					ibm->reynolds_stress2[i] /= (double)ibm->count[i];
+					ibm->reynolds_stress3[i] /= (double)ibm->count[i];
+					ibm->pressure[i] /= (double)ibm->count[i]; 
+				}
+			}
+			
+			int n_elmt = ibm->n_elmt;
+			int n_v = ibm->n_v;
+			std::vector<double> mean_shear_buf(n_elmt);
+			MPI_Allreduce(&ibm->mean_shear[0], &mean_shear_buf[0], n_elmt, MPI_DOUBLE, MPI_SUM, PETSC_COMM_WORLD);
+			std::vector<double> reynolds_stress1_buf(n_elmt);
+			MPI_Allreduce(&ibm->reynolds_stress1[0], &reynolds_stress1_buf[0], n_elmt, MPI_DOUBLE, MPI_SUM, PETSC_COMM_WORLD);
+			std::vector<double> reynolds_stress2_buf(n_elmt);
+			MPI_Allreduce(&ibm->reynolds_stress2[0], &reynolds_stress2_buf[0], n_elmt, MPI_DOUBLE, MPI_SUM, PETSC_COMM_WORLD);
+			std::vector<double> reynolds_stress3_buf(n_elmt);
+			MPI_Allreduce(&ibm->reynolds_stress3[0], &reynolds_stress3_buf[0], n_elmt, MPI_DOUBLE, MPI_SUM, PETSC_COMM_WORLD);
+			std::vector<double> pressure_buf(n_elmt);
+			MPI_Allreduce(&ibm->pressure[0], &pressure_buf[0], n_elmt, MPI_DOUBLE, MPI_SUM, PETSC_COMM_WORLD);
+			
+			PetscInt rank;
+			MPI_Comm_rank(PETSC_COMM_WORLD, &rank);
+			if((rank == 0) && (ti == (ti/tiout)*tiout)){ 
+			
+				int n_elmt = ibm->n_elmt;
+				int n_v = ibm->n_v;
+				int i;
+				
+				FILE *f;
+				char filen[80];
+				sprintf(filen, "IBM_000SURF_%2.2d_%7.7d.dat",ibi,ti);
+				f = fopen(filen, "w");
+				PetscFPrintf(PETSC_COMM_WORLD,f,"TITLE=\"3D TRIANGULAR SURFACE DATA\"\n");
+				PetscFPrintf(PETSC_COMM_WORLD,f,"VARIABLES= \"X\",\"Y\",\"Z\",\"P\",\"Mean_Shear\",\"reynolds_stress1\",\"reynolds_stress2\",\"reynolds_stress3\"\n");
+				PetscFPrintf(PETSC_COMM_WORLD,f,"ZONE T=\"unstruc\", DATAPACKING=BLOCK, NODES=%d, ELEMENTS= %d , ZONETYPE=FETRIANGLE \n",n_v,n_elmt);
+				PetscFPrintf(PETSC_COMM_WORLD,f,"VARLOCATION = ([1-3]= NODAL)\n");
+				PetscFPrintf(PETSC_COMM_WORLD,f,"VARLOCATION = ([4-8]= CELLCENTERED)\n");	
+				for (i=0; i<n_v; i++) {
+					PetscFPrintf(PETSC_COMM_WORLD, f, " %e ", ibm->x_bp[i]);
+				}
+				PetscFPrintf(PETSC_COMM_WORLD, f, "\n");
+				for (i=0; i<n_v; i++) {
+					PetscFPrintf(PETSC_COMM_WORLD, f, " %e ", ibm->y_bp[i]);
+				}
+				PetscFPrintf(PETSC_COMM_WORLD, f, "\n");
+				for (i=0; i<n_v; i++) {	
+					PetscFPrintf(PETSC_COMM_WORLD, f, " %e ", ibm->z_bp[i]);
+				}
+				PetscFPrintf(PETSC_COMM_WORLD, f, "\n");
+				for (i=0; i<n_elmt; i++) {
+					PetscFPrintf(PETSC_COMM_WORLD, f, " %e ", mean_shear_buf[i]);
+				}
+				PetscFPrintf(PETSC_COMM_WORLD, f, "\n");
+				for (i=0; i<n_elmt; i++) {
+					PetscFPrintf(PETSC_COMM_WORLD, f, " %e ", reynolds_stress1_buf[i]);
+				}
+				PetscFPrintf(PETSC_COMM_WORLD, f, "\n");
+				for (i=0; i<n_elmt; i++) {
+					PetscFPrintf(PETSC_COMM_WORLD, f, " %e ", reynolds_stress2_buf[i]);
+				}
+				PetscFPrintf(PETSC_COMM_WORLD, f, "\n");
+				for (i=0; i<n_elmt; i++) {
+					PetscFPrintf(PETSC_COMM_WORLD, f, " %e ", reynolds_stress3_buf[i]);
+				}
+				PetscFPrintf(PETSC_COMM_WORLD, f, "\n");
+				for (i=0; i<n_elmt; i++) {
+					PetscFPrintf(PETSC_COMM_WORLD, f, " %e ", pressure_buf[i]);
+				}
+				PetscFPrintf(PETSC_COMM_WORLD, f, "\n");
+				for (i=0; i<n_elmt; i++) {
+					PetscFPrintf(PETSC_COMM_WORLD, f, " %d %d %d \n", ibm->nv1[i]+1, ibm->nv2[i]+1, ibm->nv3[i]+1);
+				}
+				fclose(f);
+			}
+			
+	}
+		
+		
+		DAVecRestoreArray(fda, user->Ucat, &ucat);	//
+		DAVecRestoreArray(fda, user->lUcat, &lucat);
+		DAVecRestoreArray(da, user->P, &p);
+		DAVecRestoreArray(da, user->lP, &lp);
+		
+		DAGlobalToLocalBegin(fda, user->Ucat, INSERT_VALUES, user->lUcat);
+		DAGlobalToLocalEnd(fda, user->Ucat, INSERT_VALUES, user->lUcat);
+		
+		
+		DAVecGetArray(fda, user->lUcat, &lucat);
+		DAVecGetArray(fda, user->Ucont, &ucont);
+		for (int k=lzs; k<lze; k++)
+		for (int j=lys; j<lye; j++)
+		for (int i=lxs; i<lxe; i++) {
+			double f = 1.0;
+			if(immersed==3) f = 0;
+			
+			if ((int)(nvert[k][j][i]+0.5) ==1) {
+				ucx = (lucat[k][j][i].x + lucat[k][j][i+1].x) * 0.5;
+				ucy = (lucat[k][j][i].y + lucat[k][j][i+1].y) * 0.5;
+				ucz = (lucat[k][j][i].z + lucat[k][j][i+1].z) * 0.5;
+				ucont[k][j][i].x = (ucx * icsi[k][j][i].x + ucy * icsi[k][j][i].y + ucz * icsi[k][j][i].z) * f;
+				
+				ucx = (lucat[k][j+1][i].x + lucat[k][j][i].x) * 0.5;
+				ucy = (lucat[k][j+1][i].y + lucat[k][j][i].y) * 0.5;
+				ucz = (lucat[k][j+1][i].z + lucat[k][j][i].z) * 0.5;
+				ucont[k][j][i].y = (ucx * jeta[k][j][i].x + ucy * jeta[k][j][i].y + ucz * jeta[k][j][i].z) * f;
+			  
+				ucx = (lucat[k+1][j][i].x + lucat[k][j][i].x) * 0.5;
+				ucy = (lucat[k+1][j][i].y + lucat[k][j][i].y) * 0.5;
+				ucz = (lucat[k+1][j][i].z + lucat[k][j][i].z) * 0.5;
+				ucont[k][j][i].z = (ucx * kzet[k][j][i].x + ucy * kzet[k][j][i].y + ucz * kzet[k][j][i].z) * f;
+				
+				if ( (user->bctype[0]==-1 || user->bctype[0]==-2) && i==1) ucont[k][j][i].x = 0;
+				if ( (user->bctype[2]==-1 || user->bctype[2]==-2) && j==1) ucont[k][j][i].y = 0;
+				if ( (user->bctype[4]==-1 || user->bctype[4]==-2) && k==1) ucont[k][j][i].z = 0;
+			}
+
+			if ((int)(nvert[k][j][i+1]+0.5)==1) {
+				ucx = (lucat[k][j][i].x + lucat[k][j][i+1].x) * 0.5;
+				ucy = (lucat[k][j][i].y + lucat[k][j][i+1].y) * 0.5;
+				ucz = (lucat[k][j][i].z + lucat[k][j][i+1].z) * 0.5;
+				
+				ucont[k][j][i].x = (ucx * icsi[k][j][i].x + ucy * icsi[k][j][i].y + ucz * icsi[k][j][i].z) * f;
+				if ( (user->bctype[1]==-1 || user->bctype[1]==-2) && i==mx-3) ucont[k][j][i].x = 0;
+			}
+			
+			if ((int)(nvert[k][j+1][i]+0.5)==1) {
+				ucx = (lucat[k][j+1][i].x + lucat[k][j][i].x) * 0.5;
+				ucy = (lucat[k][j+1][i].y + lucat[k][j][i].y) * 0.5;
+				ucz = (lucat[k][j+1][i].z + lucat[k][j][i].z) * 0.5;
+				
+				ucont[k][j][i].y = (ucx * jeta[k][j][i].x + ucy * jeta[k][j][i].y + ucz * jeta[k][j][i].z) * f;
+				if ( (user->bctype[3]==-1 || user->bctype[3]==-2) && j==my-3) ucont[k][j][i].y = 0;
+			}
+
+			if ((int)(nvert[k+1][j][i]+0.5)==1) {
+				ucx = (lucat[k+1][j][i].x + lucat[k][j][i].x) * 0.5;
+				ucy = (lucat[k+1][j][i].y + lucat[k][j][i].y) * 0.5;
+				ucz = (lucat[k+1][j][i].z + lucat[k][j][i].z) * 0.5;
+				
+				ucont[k][j][i].z = (ucx * kzet[k][j][i].x + ucy * kzet[k][j][i].y + ucz * kzet[k][j][i].z )* f;
+				if ( (user->bctype[5]==-1 || user->bctype[5]==-2) && k==mz-3) ucont[k][j][i].z = 0;
+			}
+		}
+		
+		DAVecRestoreArray(fda, user->lUcat, &lucat);
+		DAVecRestoreArray(fda, user->Ucont, &ucont);
+		
+		DAGlobalToLocalBegin(fda, user->Ucont, INSERT_VALUES, user->lUcont);
+		DAGlobalToLocalEnd(fda, user->Ucont, INSERT_VALUES, user->lUcont);
+		
+		Contra2Cart(user);
+	}//tmp_end
+
+	DAGlobalToLocalBegin(da, user->P, INSERT_VALUES, user->lP);
+	DAGlobalToLocalEnd(da, user->P, INSERT_VALUES, user->lP);
+	
+	if(averaging) {
+		DAVecRestoreArray(fda, lUcat_sum, &usum);
+		DAVecRestoreArray(fda, lUcat_cross_sum, &u1sum);
+		DAVecRestoreArray(fda, lUcat_square_sum, &u2sum);
+		VecDestroy(lUcat_sum);
+		VecDestroy(lUcat_cross_sum);
+		VecDestroy(lUcat_square_sum);
+	}
+	
+	DAVecRestoreArray(da, user->lAj, &aj);
+	DAVecRestoreArray(da, user->lUstar, &ustar);
+	DAVecRestoreArray(fda, user->lCsi, &csi);
+	DAVecRestoreArray(fda, user->lEta, &eta);
+	DAVecRestoreArray(fda, user->lZet, &zet);
+	DAVecRestoreArray(fda, user->lICsi, &icsi);
+	DAVecRestoreArray(fda, user->lJEta, &jeta);
+	DAVecRestoreArray(fda, user->lKZet, &kzet);
+	DAVecRestoreArray(da, user->lNvert, &nvert);
+
+	
+	
+	if(levelset) {
+		DAVecRestoreArray(da, user->Levelset, &level);
+		DAVecRestoreArray(da, user->lLevelset, &llevel);
+		DAVecRestoreArray(da, Density, &rho);
+		DAVecRestoreArray(da, Mu, &mu);
+		DAVecRestoreArray(da, user->lDensity, &lrho);
+		DAVecRestoreArray(da, user->lMu, &lmu);
+
+		DAGlobalToLocalBegin (da, user->Levelset, INSERT_VALUES, user->lLevelset);
+		DAGlobalToLocalEnd (da, user->Levelset, INSERT_VALUES, user->lLevelset);
+
+		DAGlobalToLocalBegin (da, Density, INSERT_VALUES, user->lDensity);
+		DAGlobalToLocalEnd (da, Density, INSERT_VALUES, user->lDensity);
+
+		DAGlobalToLocalBegin (da, Mu, INSERT_VALUES, user->lMu);
+		DAGlobalToLocalEnd (da, Mu, INSERT_VALUES, user->lMu);
+
+		VecDestroy(Density);
+		VecDestroy(Mu);
+	}
+
+	return 0;
 }

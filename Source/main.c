@@ -13,7 +13,7 @@ PetscInt ti,tistart=0;
 PetscReal	Flux_in = 4.104388e-04, angle = 0;
 PetscInt tiout = 10;
 PetscInt block_number;
-PetscReal FluxInSum, FluxOutSum;
+PetscReal FluxInSum, FluxInSum_y, FluxInSum_z, FluxOutSum, FluxOutSum_y,FluxOutSum_z;
 PetscReal FluxInSum_gas, FluxOutSum_gas;	// seokkoo
 PetscInt immersed = 0;
 PetscInt inviscid = 0;
@@ -354,6 +354,12 @@ IBMNodes	*ibm_ptr;
 FSInfo        *fsi_ptr;
 UserCtx	*user_ptr;
 
+// Inclined inflow
+PetscReal angularInflowFlag=0.0;
+PetscReal u_angleInX_wrt_z=0.0;
+PetscReal u_angleInY_wrt_z=0.0;
+
+
 int file_exist(char *str)
 {
   int r=0;
@@ -456,10 +462,16 @@ PetscErrorCode Ucont_P_Binary_Input(UserCtx *user)
 				VecSet(user->tauS_sum, 0);
 			}
 			VecSet(user->Udp_sum, 0);
+			VecSet(user->Q_sum, 0);
 			VecSet(user->dU2_sum, 0);
 			VecSet(user->UUU_sum, 0);
 			VecSet(user->Vort_sum, 0);
 			VecSet(user->Vort_square_sum, 0);
+		}
+		if(averaging>=4) {
+			VecSet(user->Ucat_wx_sum, 0);
+			VecSet(user->Ucat_wy_sum, 0);
+			VecSet(user->Ucat_wz_sum, 0);
 		}
 		
 		if(fp==NULL) {
@@ -533,6 +545,20 @@ PetscErrorCode Ucont_P_Binary_Input(UserCtx *user)
 				VecLoadIntoVector(viewer, user->Udp_sum);
 				PetscViewerDestroy(viewer);
 
+
+				sprintf(filen, "%s/Q_%06d_%1d.dat", path, ti, user->_this);
+				FILE *fp1=fopen(filen, "r");
+				if(fp1==NULL){
+					PetscPrintf(PETSC_COMM_WORLD,"\n\n*** Cannot open %s, setting the statistical quantities to zero and contiues the computation ... ***\n\n", filen);
+				}
+				else{
+					fclose(fp1);
+					PetscViewerBinaryOpen(PETSC_COMM_WORLD, filen, FILE_MODE_READ, &viewer);
+					VecLoadIntoVector(viewer, user->Q_sum);
+					PetscViewerDestroy(viewer);
+				}
+
+
 				sprintf(filen, "%s/su4_%06d_%1d.dat", path, ti, user->_this);
 				PetscViewerBinaryOpen(PETSC_COMM_WORLD, filen, FILE_MODE_READ, &viewer);
 				VecLoadIntoVector(viewer, user->dU2_sum);
@@ -554,7 +580,29 @@ PetscErrorCode Ucont_P_Binary_Input(UserCtx *user)
 				PetscViewerDestroy(viewer);
 			}
 			
-			PetscPrintf(PETSC_COMM_WORLD,"\n\n*** Read %s, continuing averaging ... ***\n\n", filen);
+			if(averaging>=4) {
+				sprintf(filen, "%s/uwx_%06d_%1d.dat", path, ti, user->_this);
+				FILE *fp2=fopen(filen, "r");
+				if(fp2==NULL){
+					PetscPrintf(PETSC_COMM_WORLD,"\n\n*** Cannot open %s, setting the statistical quantities to zero and contiues the computation ... ***\n\n", filen);
+				}
+				else{
+					fclose(fp2);
+					PetscViewerBinaryOpen(PETSC_COMM_WORLD, filen, FILE_MODE_READ, &viewer);
+					VecLoadIntoVector(viewer, user->Ucat_wx_sum);
+					PetscViewerDestroy(viewer);
+					sprintf(filen, "%s/uwy_%06d_%1d.dat", path, ti, user->_this);
+					PetscViewerBinaryOpen(PETSC_COMM_WORLD, filen, FILE_MODE_READ, &viewer);
+					VecLoadIntoVector(viewer, user->Ucat_wy_sum);
+					PetscViewerDestroy(viewer);
+					sprintf(filen, "%s/uwz_%06d_%1d.dat", path, ti, user->_this);
+					PetscViewerBinaryOpen(PETSC_COMM_WORLD, filen, FILE_MODE_READ, &viewer);
+					VecLoadIntoVector(viewer, user->Ucat_wz_sum);
+					PetscViewerDestroy(viewer);
+				}
+			}
+			
+			PetscPrintf(PETSC_COMM_WORLD,"\n\n*** Read completed, continuing averaging ... ***\n\n");
 		}
 	}
   
@@ -786,14 +834,6 @@ PetscErrorCode Ucont_P_Binary_Output(UserCtx *user)
 		  sprintf(filen, "%s/sk_%06d_%1d.dat.info",path, ti, user->_this);        if(!rank) unlink(filen);
 		}
 
-
-
-
-
-
-
-
-
 		if(averaging>=2) {
 			sprintf(filen, "%s/sp2_%06d_%1d.dat",path, ti, user->_this);
 			PetscViewerBinaryOpen(PETSC_COMM_WORLD, filen, FILE_MODE_WRITE, &viewer);
@@ -824,6 +864,14 @@ PetscErrorCode Ucont_P_Binary_Output(UserCtx *user)
 			PetscViewerDestroy(viewer);
 			sprintf(filen, "%s/su3_%06d_%1d.dat.info",path, ti, user->_this);if(!rank) unlink(filen);
 
+
+			sprintf(filen, "%s/Q_%06d_%1d.dat",path, ti, user->_this);
+			PetscViewerBinaryOpen(PETSC_COMM_WORLD, filen, FILE_MODE_WRITE, &viewer);
+			VecView(user->Q_sum, viewer);
+			PetscViewerDestroy(viewer);
+			sprintf(filen, "%s/Q_%06d_%1d.dat.info",path, ti, user->_this);if(!rank) unlink(filen);
+
+
 			sprintf(filen, "%s/su4_%06d_%1d.dat",path, ti, user->_this);
 			PetscViewerBinaryOpen(PETSC_COMM_WORLD, filen, FILE_MODE_WRITE, &viewer);
 			VecView(user->dU2_sum, viewer);
@@ -849,6 +897,27 @@ PetscErrorCode Ucont_P_Binary_Output(UserCtx *user)
 			sprintf(filen, "%s/svo2_%06d_%1d.dat.info",path, ti, user->_this);        if(!rank) unlink(filen);
 		}
 		
+		PetscBarrier(PETSC_NULL);
+
+		if(averaging>=4) {
+			sprintf(filen, "%s/uwx_%06d_%1d.dat", path, ti, user->_this);
+			PetscViewerBinaryOpen(PETSC_COMM_WORLD, filen, FILE_MODE_WRITE, &viewer);
+			VecView(user->Ucat_wx_sum, viewer);
+			PetscViewerDestroy(viewer);  
+			sprintf(filen, "%s/uwx_%06d_%1d.dat.info", path, ti, user->_this);	if(!rank) unlink(filen);
+			
+			sprintf(filen, "%s/uwy_%06d_%1d.dat", path, ti, user->_this);
+			PetscViewerBinaryOpen(PETSC_COMM_WORLD, filen, FILE_MODE_WRITE, &viewer);
+			VecView(user->Ucat_wy_sum, viewer);
+			PetscViewerDestroy(viewer);  
+			sprintf(filen, "%s/uwy_%06d_%1d.dat.info", path, ti, user->_this);	if(!rank) unlink(filen);
+			
+			sprintf(filen, "%s/uwz_%06d_%1d.dat", path, ti, user->_this);
+			PetscViewerBinaryOpen(PETSC_COMM_WORLD, filen, FILE_MODE_WRITE, &viewer);
+			VecView(user->Ucat_wz_sum, viewer);
+			PetscViewerDestroy(viewer);  
+			sprintf(filen, "%s/uwz_%06d_%1d.dat.info", path, ti, user->_this);	if(!rank) unlink(filen);
+		}
 		PetscBarrier(PETSC_NULL);
 	}
   
@@ -909,9 +978,18 @@ PetscErrorCode Ucont_P_Binary_Output(UserCtx *user)
 			  sprintf(filen, "%s/su4_%06d_%1d.dat", path, ti-tiout*2, user->_this);   if(!rank) unlink(filen);
 			  sprintf(filen, "%s/su5_%06d_%1d.dat", path, ti-tiout*2, user->_this);   if(!rank) unlink(filen);
 
-				sprintf(filen, "%s/svo_%06d_%1d.dat", path, ti-tiout*2, user->_this);	if(!rank) unlink(filen);
-				sprintf(filen, "%s/svo2_%06d_%1d.dat", path, ti-tiout*2, user->_this);	if(!rank) unlink(filen);
+			  sprintf(filen, "%s/svo_%06d_%1d.dat", path, ti-tiout*2, user->_this);	if(!rank) unlink(filen);
+			  sprintf(filen, "%s/svo2_%06d_%1d.dat", path, ti-tiout*2, user->_this);	if(!rank) unlink(filen);
+			  
+			  sprintf(filen, "%s/Q_%06d_%1d.dat", path, ti-tiout*2, user->_this);	if(!rank) unlink(filen);			  
 			}
+			
+			if(averaging>=4) {
+			  sprintf(filen, "%s/uwx_%06d_%1d.dat", path, ti-tiout*2, user->_this);   if(!rank) unlink(filen);
+			  sprintf(filen, "%s/uwy_%06d_%1d.dat", path, ti-tiout*2, user->_this);   if(!rank) unlink(filen);
+			  sprintf(filen, "%s/uwz_%06d_%1d.dat", path, ti-tiout*2, user->_this);   if(!rank) unlink(filen);
+			}
+			
 			if(les) {
 			  sprintf(filen, "%s/stauS_%06d_%1d.dat", path, ti-tiout*2, user->_this); if(!rank) unlink(filen);
 			  sprintf(filen, "%s/snut_%06d_%1d.dat", path, ti-tiout*2, user->_this); if(!rank) unlink(filen);
@@ -1336,6 +1414,10 @@ int main(int argc, char **argv)
 	PetscReal	norm;
 	IBMNodes	*ibm, *ibm0, *ibm1;
 	IBMInfo	*ibm_intp;
+	
+	// Added for surface forces
+	IBMInfo *fsi_intp;
+	SurfElmtInfo *elmtinfo;
 
 	// Added for fsi
 	FSInfo        *fsi;
@@ -1396,6 +1478,10 @@ int main(int argc, char **argv)
 	PetscOptionsGetInt(PETSC_NULL, "-dgf_ay", &dgf_ay, PETSC_NULL);
 	PetscOptionsGetInt(PETSC_NULL, "-dgf_ax", &dgf_ax, PETSC_NULL);
 	PetscOptionsGetInt(PETSC_NULL, "-body", &NumberOfBodies, PETSC_NULL);
+
+	PetscOptionsGetReal(PETSC_NULL, "-u_angleInX_wrt_z", &u_angleInX_wrt_z, PETSC_NULL);
+	PetscOptionsGetReal(PETSC_NULL, "-u_angleInY_wrt_z", &u_angleInY_wrt_z, PETSC_NULL);
+	PetscOptionsGetReal(PETSC_NULL, "-angularInflowFlag", &angularInflowFlag, PETSC_NULL);
 
 	PetscOptionsGetInt(PETSC_NULL, "-averaging", &averaging, PETSC_NULL);	// Seokkoo Kang: if 1 do averaging; always begin with -rstart 0
 	PetscOptionsGetInt(PETSC_NULL, "-binary", &binary_input, PETSC_NULL);	// Seokkoo Kang: if 1 binary PLOT3D file, if 0 ascii.
@@ -1776,10 +1862,10 @@ int main(int argc, char **argv)
   if (MHV) NumberOfBodies=3;//2;
   
   if (immersed) {
-    PetscMalloc(NumberOfBodies*sizeof(IBMNodes), &ibm);
-    PetscMalloc(NumberOfBodies*sizeof(FSInfo), &fsi);
-	  ibm_ptr = ibm;
-	  fsi_ptr = fsi;
+    	PetscMalloc(NumberOfBodies*sizeof(IBMNodes), &ibm);
+    	PetscMalloc(NumberOfBodies*sizeof(FSInfo), &fsi);
+	ibm_ptr = ibm;
+	fsi_ptr = fsi;
   }
 
 	// add begin (xiaolei)
@@ -1952,6 +2038,9 @@ int main(int argc, char **argv)
 			
 			VecDuplicate(user->P, &user->Udp_sum);
 			VecSet(user->Udp_sum, 0);
+
+			VecDuplicate(user->P, &user->Q_sum);
+                        VecSet(user->Q_sum, 0);
 			
 			VecDuplicate(user->Ucont, &user->dU2_sum);
 			VecSet(user->dU2_sum, 0);
@@ -1964,6 +2053,14 @@ int main(int argc, char **argv)
 			
 			VecDuplicate(user->Ucont, &user->Vort_square_sum);
 			VecSet (user->Vort_square_sum, 0);
+		}
+		if(averaging>=4) {
+			VecDuplicate(user->Ucat, &user->Ucat_wx_sum);
+			VecSet(user->Ucat_wx_sum,0);
+			VecDuplicate(user->Ucat, &user->Ucat_wy_sum);
+			VecSet(user->Ucat_wy_sum,0);
+			VecDuplicate(user->Ucat, &user->Ucat_wz_sum);
+			VecSet(user->Ucat_wz_sum,0);	
 		}
 	}
 
@@ -2002,9 +2099,8 @@ int main(int argc, char **argv)
 				if (ibi==2) CMy_c=-CMy_c;
 				ibm_read_ucd(&ibm[ibi], ibi);
 				PetscPrintf(PETSC_COMM_WORLD, "Ibm read MHV!\n");
-
-				FsiInitialize(0, &fsi[ibi], ibi);
-      }
+				FsiInitialize(ibm[ibi].n_elmt, &fsi[ibi], ibi); //ASR
+		      }
       
       fsi[1].y_c = -0.0878; fsi[1].z_c = 4.143;//4.21;
       fsi[2].y_c =  0.0878; fsi[2].z_c = 4.143;//4.21;
@@ -2021,15 +2117,15 @@ int main(int argc, char **argv)
       }
     } 
 		else {
-      for (i=0;i<NumberOfBodies;i++) {
+      for (ibi=0;ibi<NumberOfBodies;ibi++) {
 				PetscPrintf(PETSC_COMM_WORLD, "Ibm read!\n");
 				/*     ibm_read(ibm0); */
-				ibm_read_ucd(&ibm[i], i);
+				ibm_read_ucd(&ibm[ibi], ibi);
 				PetscBarrier(PETSC_NULL);	
 				// init for fsi
 				/* FsiInitialize(ibm[i].n_elmt, &fsi[i], i); */
-				FsiInitialize(0, &fsi[i], i);
-      }
+				FsiInitialize(ibm[ibi].n_elmt, &fsi[ibi], ibi); //ASR
+		      }
     }
     ti = 0;
     if (rstart_flg) ti = tistart;		
@@ -2496,6 +2592,17 @@ int main(int argc, char **argv)
 			VecCopy(user[bi].Levelset, user[bi].Levelset_o);
     }
     if(ti==tistart) Calc_Inlet_Area(&user[bi]);
+//	if(!my_rank){	
+	for (ibi=0;ibi<NumberOfBodies;ibi++) {
+		PetscPrintf(PETSC_COMM_WORLD, "fsi_interpolation %d \n", ibi);
+		PetscMalloc(ibm[ibi].n_elmt*sizeof(SurfElmtInfo), &elmtinfo); //ASR
+		PetscMalloc(ibm[ibi].n_elmt*sizeof(IBMInfo), &fsi_intp); // ASR
+        	fsi_interpolation_coeff(user, ibm, fsi_intp, elmtinfo , fsi); //ASR
+	//	MPI_Bcast(elmtinfo, ibm[ibi].n_elmt, SurfElmtInfo, 0, PETSC_COMM_WORLD);
+        //      MPI_Bcast(fsi_intp, ibm[ibi].n_elmt, IBMInfo, 0, PETSC_COMM_WORLD);
+  //  	 }
+	}
+	 
     if (ti==0) {
 			VecSet(user[bi].Ucont,0.);
 			VecSet(user[bi].lUcont,0.);
@@ -2559,10 +2666,8 @@ int main(int argc, char **argv)
       if(levelset) Calc_Inlet_Area(&(usermg.mgctx[usermg.mglevels-1].user[0]));
       //Flow_Solver(&usermg, ibm, fsi,itr_sc);
 			//Flow_Solver(&usermg, ibm, fsi,itr_sc, wtm, acl, fsi_wt, ibm_ACD, fsi_IBDelta, ibm_IBDelta);
-      Flow_Solver(&usermg, ibm, fsi, itr_sc, wtm, acl, fsi_wt, ibm_ACD, fsi_IBDelta, ibm_IBDelta, ibm_acl2ref, fsi_acl2ref, ibm_nacelle, fsi_nacelle);
-		
-      if(rotatefsi || movefsi || NumberOfBodies==2) for (ibi=0;ibi<NumberOfBodies;ibi++) ibm_surface_out_with_pressure(&ibm[ibi], ibi);
-      
+      Flow_Solver(&usermg, ibm, fsi, itr_sc, wtm, acl, fsi_wt, ibm_ACD, fsi_IBDelta, ibm_IBDelta, ibm_acl2ref, fsi_acl2ref, ibm_nacelle, fsi_nacelle, elmtinfo, fsi_intp);
+	//if(rotatefsi || movefsi || NumberOfBodies==2) for (ibi=0;ibi<NumberOfBodies;ibi++) ibm_surface_out_with_pressure(&ibm[ibi], ibi);
     }// End of while SC loop
     /* ==================================================================================             */
 		/*  put the time accuracy coefficient back to 1.5 

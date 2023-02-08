@@ -10,21 +10,149 @@
 extern PetscInt radi,fish,TwoD;
 extern char path[256];
 
+
+//ASR from
+struct Point {
+   float x, y;
+};
+
+typedef struct Point Point;
+
+
+struct line {
+   Point p1, p2;
+};
+
+typedef struct line line;
+
+#define max(x, y) (((x) > (y)) ? (x) : (y))
+#define min(x, y) (((x) < (y)) ? (x) : (y))
+
+
+int onLine(line l1, Point p) {        //check whether p is on the line or not
+   if(p.x <= max(l1.p1.x, l1.p2.x) && p.x <= min(l1.p1.x, l1.p2.x) &&
+      (p.y <= max(l1.p1.y, l1.p2.y) && p.y <= min(l1.p1.y, l1.p2.y)))
+         return 1;
+
+   return 0;
+}
+
+int direction(Point a, Point b, Point c) {
+   float val = (b.y-a.y)*(c.x-b.x)-(b.x-a.x)*(c.y-b.y);
+   if (val == 0)
+      return 0;           //colinear
+   else if(val < 0)
+      return 2;          //anti-clockwise direction
+      return 1;          //clockwise direction
+}
+
+int isIntersect(line l1, line l2) {
+   //four direction for two lines and points of other line
+   int dir1 = direction(l1.p1, l1.p2, l2.p1);
+   int dir2 = direction(l1.p1, l1.p2, l2.p2);
+   int dir3 = direction(l2.p1, l2.p2, l1.p1);
+   int dir4 = direction(l2.p1, l2.p2, l1.p2);
+
+   if(dir1 != dir2 && dir3 != dir4)
+      return 1;           //they are intersecting
+   if(dir1==0 && onLine(l1, l2.p1))        //when p2 of line2 are on the line1
+      return 1;
+   if(dir2==0 && onLine(l1, l2.p2))         //when p1 of line2 are on the line1
+      return 1;
+   if(dir3==0 && onLine(l2, l1.p1))       //when p2 of line1 are on the line2
+      return 1;
+   if(dir4==0 && onLine(l2, l1.p2)) //when p1 of line1 are on the line2
+      return 1;
+   return 0;
+}
+
+int checkInside(Point poly[], int n, Point p) {
+   if(n < 3)
+      return 0;                  //when polygon has less than 3 edge, it is not polygon
+   line exline = {p, {9999, p.y}};   //create a point at infinity, y is same as point p
+   int count = 0;
+   int i = 0;
+   do {
+      line side = {poly[i], poly[(i+1)%n]};     //forming a line from two consecutive points of poly
+      if(isIntersect(side, exline)) {          //if side is intersects exline
+         if(direction(side.p1, p, side.p2) == 0)
+            return onLine(side, p);
+         count++;
+      }
+      i = (i+1)%n;
+   } while(i != 0);
+      return count&1;             //when count is odd
+}
+
+//ASR to
+
 PetscErrorCode linear_intp(Cpt2D p, Cpt2D p1, Cpt2D p2, 
 			   IBMInfo *ibminfo, PetscInt number,
 			   PetscInt nvert)
 {
-  PetscReal  x12, y12, xp2, yp2, Cr;
-  x12 = p1.x - p2.x; y12 = p1.y - p2.y;
-  xp2 = p.x - p2.x; yp2 = p.y - p2.y;
+	Cpt2D pIn;
+	PetscReal  x12, y12, slope, cLine, slopeReciprocal, cNormal, Cr;
 
+	x12 = p1.x - p2.x; y12 = p1.y - p2.y;
+	if(x12==0){
+		pIn.x = p1.x;
+		pIn.y = p.y;
+		Cr = (pIn.y-p1.y)/(p2.y-p1.y);
+	}
+	else if(y12==0){
+		pIn.x = p.x;
+		pIn.y = p1.y;
+		Cr = (pIn.x-p1.x)/(p2.x-p1.x);
+	}
+	else{
+//		x12 = p1.x - p2.x; y12 = p1.y - p2.y;
+		slope = y12/x12;
+		cLine = -p2.x*slope + p2.y;
+		//% original line
+		//% y = slope*x + cLine
+		slopeReciprocal = -1/slope;
+		//% normal line
+		//% y = slopeReciprocal*x + cNormal;
+		cNormal = p.y - slopeReciprocal*p.x;
+		//% now interception point
+		//% slopeReciprocal*x + cNormal =  slope*x + cLine
+		//%(slopeReciprocal - slope)x = cLine - cNormal
+		pIn.x = (cLine - cNormal)/(slopeReciprocal - slope);
+		pIn.y = slopeReciprocal*pIn.x + cNormal;
+		Cr = (pIn.x-p1.x)/(p2.x-p1.x);
+	}
+
+	if(isnan(Cr)){
+		PetscPrintf(PETSC_COMM_SELF,"elmt=%d; cr is nan;\n",number);
+	}
+
+/*
+		slope = y12/x12;
+		cLine = -p2.x*slope + p2.y;
+		//% original line
+		//% y = slope*x + cLine
+		slopeReciprocal = -1/slope;
+		//% normal line
+		//% y = slopeReciprocal*x + cNormal;
+		cNormal = p.y - slopeReciprocal*p.x;
+		//% now interception point
+		//% slopeReciprocal*x + cNormal =  slope*x + cLine
+		//%(slopeReciprocal - slope)x = cLine - cNormal
+		pIn.x = (cLine - cNormal)/(slopeReciprocal - slope);
+		pIn.y = slopeReciprocal*pIn.x + cNormal;
+		Cr = (pIn.x-p1.x)/(p2.x-p1.x);
+		
+*/
+
+ /*
+// the following interpolation is wrong
   if (fabs(x12)>1e-7) {
     Cr=xp2/x12;
   }  else if (fabs(y12)>1e-7) {
     Cr=yp2/y12;
   } else {
-    PetscPrintf(PETSC_COMM_WORLD, "%Something Wrong!!! Linear intp two points are the same!!!\n");
-  }
+    PetscPrintf(PETSC_COMM_WORLD, "Something Wrong!!! Linear intp two points are the same!!!\n");
+  }*/
   
   if (nvert==1) {
     ibminfo[number].cr1 = 0.;
@@ -41,6 +169,14 @@ PetscErrorCode linear_intp(Cpt2D p, Cpt2D p1, Cpt2D p2,
   } else {
     PetscPrintf(PETSC_COMM_WORLD, "%Wrong Nvert in Linear intp!!!\n");
   }
+
+if(number==7087){
+    PetscPrintf(PETSC_COMM_SELF,"elmt=%d; nvert=%d; Cr=%f;\n",number,nvert,Cr);
+    PetscPrintf(PETSC_COMM_SELF,"p.x=%f; p.y=%f; p.z=%f;\n",p.x,p.y,0.1);
+    PetscPrintf(PETSC_COMM_SELF,"p1.x=%f; p1.y=%f; p1.z=%f;\n",p1.x,p1.y,0.1);
+    PetscPrintf(PETSC_COMM_SELF,"p2.x=%f; p2.y=%f; p2.z=%f;\n",p2.x,p2.y,0.1);
+}
+
   return(0);  
 }
 
@@ -183,12 +319,22 @@ PetscErrorCode Closest_NearBndryPt_ToSurfElmt(UserCtx *user, IBMNodes *ibm, Surf
   PetscInt	xs = info.xs, xe = info.xs + info.xm;
   PetscInt  	ys = info.ys, ye = info.ys + info.ym;
   PetscInt	zs = info.zs, ze = info.zs + info.zm;
-  //PetscInt	mx = info.mx, my = info.my, mz = info.mz; 
+  PetscInt	mx = info.mx, my = info.my, mz = info.mz; 
   PetscInt      lxs, lxe, lys, lye, lzs, lze;
+  PetscReal     DCoorXs = 1e10, DCoorXe = -1e10, DCoorYs = 1e10, DCoorYe = -1e10, DCoorZs = 1e10, DCoorZe = -1e10; // coordinate of domain start and end position //ASR
+  PetscReal     GCoorXs = 1e10, GCoorXe = -1e10, GCoorYs = 1e10, GCoorYe = -1e10, GCoorZs = 1e10, GCoorZe = -1e10; // coordinate of domain start and end position //ASR
 
   lxs = xs; lxe = xe;
   lys = ys; lye = ye;
   lzs = zs; lze = ze;
+
+  if (xs==0) lxs = xs+1;
+  if (ys==0) lys = ys+1;
+  if (zs==0) lzs = zs+1;
+
+  if (xe==mx) lxe = xe-2;
+  if (ye==my) lye = ye-2;
+  if (ze==mz) lze = ze-2;
 
 /*   if (xs==0) lxs = xs+1; */
 /*   if (ys==0) lys = ys+1; */
@@ -220,28 +366,149 @@ PetscErrorCode Closest_NearBndryPt_ToSurfElmt(UserCtx *user, IBMNodes *ibm, Surf
   PetscInt	rank;
   MPI_Comm_rank(PETSC_COMM_WORLD, &rank);
 
-  //PetscPrintf(PETSC_COMM_SELF, "n_elmt, nbnumber %d %d\n",n_elmt, nbnumber);
- 
+	if (xs==0) GCoorXs = coor[lzs][lys][lxs].x;
+   	if (ys==0) GCoorYs = coor[lzs][lys][lxs].y;
+   	if (zs==0) GCoorZs = coor[lzs][lys][lxs].z;
+   	if (xe==mx) GCoorXe = coor[lzs][lys][lxe].x;
+   	if (ye==my) GCoorYe = coor[lzs][lye][lxs].y;
+   	if (ze==mz) GCoorZe = coor[lze][lys][lxs].z;
+
+  	MPI_Allreduce (&GCoorXs, &GCoorXs, 1, MPI_DOUBLE, MPI_MIN, PETSC_COMM_WORLD);
+  	MPI_Allreduce (&GCoorYs, &GCoorYs, 1, MPI_DOUBLE, MPI_MIN, PETSC_COMM_WORLD);
+ 	MPI_Allreduce (&GCoorZs, &GCoorZs, 1, MPI_DOUBLE, MPI_MIN, PETSC_COMM_WORLD);
+  	MPI_Allreduce (&GCoorXe, &GCoorXe, 1, MPI_DOUBLE, MPI_MAX, PETSC_COMM_WORLD);
+  	MPI_Allreduce (&GCoorYe, &GCoorYe, 1, MPI_DOUBLE, MPI_MAX, PETSC_COMM_WORLD);
+  	MPI_Allreduce (&GCoorZe, &GCoorZe, 1, MPI_DOUBLE, MPI_MAX, PETSC_COMM_WORLD);
+ 	//PetscPrintf(PETSC_COMM_SELF, "n_elmt, nbnumber %d %d\n",n_elmt, nbnumber);
+  PetscInt elmtCount = 0;
   for (elmt=0; elmt<n_elmt; elmt++) {
-    xc=ibm->cent_x[elmt]; 
+    dmin=1e10;
+	xc=ibm->cent_x[elmt]; 
     yc=ibm->cent_y[elmt]; 
     zc=ibm->cent_z[elmt]; 
-
     nfx=ibm->nf_x[elmt];
     nfy=ibm->nf_y[elmt];
     nfz=ibm->nf_z[elmt];
+    elmtinfo[elmt].n_P = 0;
+    if (xc>GCoorXs && xc<GCoorXe && yc>GCoorYs && yc<GCoorYe && zc>GCoorZs && zc<GCoorZe) {//if inside the global domain
+    // if (xc>=fsi->Min_xbc && xc<=fsi->Max_xbc) {
+		elmtCount = elmtCount + 1;
+		current = user->ibmlist[ibi].head;
+		while (current) {
+			ibminfo = &current->ibm_intp;
+			current = current->next;	
+			i = ibminfo->ni; j= ibminfo->nj;    k = ibminfo->nk;      
+			if (i>=lxs && i<lxe && j>=lys && j<lye && k>=lzs && k<lze) {	        
+				x=coor[k][j][i].x;
+				y=coor[k][j][i].y;
+				z=coor[k][j][i].z;
+				dist=(x-xc)*(x-xc)+(y-yc)*(y-yc)+(z-zc)*(z-zc);
+				if (dmin>dist) {
+					elmtinfo[elmt].n_P=1;
+					dmin=dist;
+					elmtinfo[elmt].Clsnbpt_i=i;
+					elmtinfo[elmt].Clsnbpt_j=j;
+					elmtinfo[elmt].Clsnbpt_k=k;
+				}
+			}
+		}
+    }else{
+		elmtinfo[elmt].n_P=0;
+		elmtinfo[elmt].Clsnbpt_i=-1;
+    	elmtinfo[elmt].Clsnbpt_j=-1;
+    	elmtinfo[elmt].Clsnbpt_k=-1;
+       }
+  }
+  PetscPrintf(PETSC_COMM_WORLD, "elmt inside global domain %d\n",elmtCount); 
+  PetscPrintf(PETSC_COMM_WORLD, "domain extreme: %f %f %f %f %f %f\n", GCoorXs, GCoorXe, GCoorYs, GCoorYe, GCoorZs, GCoorZe); 
 
+  DAVecRestoreArray(fda, user->Cent,&coor);
+  return(0);
+}
+
+PetscErrorCode Closest_NearBndryPt_ToSurfElmt2(UserCtx *user, IBMNodes *ibm, SurfElmtInfo *elmtinfo, FSInfo *fsi, PetscInt ibi)
+{
+	DA	fda = user->fda;
+	DALocalInfo	info = user->info;
+	PetscInt	xs = info.xs, xe = info.xs + info.xm;
+	PetscInt  	ys = info.ys, ye = info.ys + info.ym;
+	PetscInt	zs = info.zs, ze = info.zs + info.zm;
+	PetscInt	mx = info.mx, my = info.my, mz = info.mz; 
+	PetscInt      lxs, lxe, lys, lye, lzs, lze;
+	PetscReal     DCoorXs = 1e10, DCoorXe = -1e10, DCoorYs = 1e10, DCoorYe = -1e10, DCoorZs = 1e10, DCoorZe = -1e10; // coordinate of domain start and end position //ASR 
+
+	lxs = xs; lxe = xe;
+	lys = ys; lye = ye;
+	lzs = zs; lze = ze;
+
+	if (xs==0) lxs = xs+1; 
+	if (ys==0) lys = ys+1; 
+	if (zs==0) lzs = zs+1; 
+	if (xe==mx) lxe = xe-2; 
+	if (ye==my) lye = ye-2; 
+	if (ze==mz) lze = ze-2;
+
+	PetscInt	i, j, k;
+	PetscInt      n_elmt = ibm->n_elmt;
+	PetscInt      elmt, Clsnbpt_i, Clsnbpt_j, Clsnbpt_k, n_P;
+	Cmpnts        ***coor;
+	PetscReal     xc,yc,zc; // tri shape surface elmt center coords
+	PetscReal     x,y,z;    // near bndry pt coords
+	PetscReal     dist, dmin;     // distance between surf elmt to near bndry pt
+	IBMInfo       *ibminfo;
+	IBMListNode   *current;
+	PetscInt world_size, world_rank, my_rank;
+	MPI_Comm_size(PETSC_COMM_WORLD, &world_size);
+	MPI_Comm_rank(PETSC_COMM_WORLD, &world_rank);
+  
+  
+  DAVecGetArray(fda, user->Cent,&coor); //ASR
+
+  for (k=lzs; k<lze; k++) {
+    for (j=lys; j<lye; j++) {
+      for (i=lxs; i<lxe; i++) {
+		DCoorXs = min(DCoorXs,coor[k][j][i].x);
+		DCoorXe = max(DCoorXe,coor[k][j][i].x);
+		DCoorYs = min(DCoorYs,coor[k][j][i].y);
+		DCoorYe = max(DCoorYe,coor[k][j][i].y);
+		DCoorZs = min(DCoorZs,coor[k][j][i].z);
+		DCoorZe = max(DCoorZe,coor[k][j][i].z);
+      }
+    }
+  }
+
+  for (elmt=0; elmt<n_elmt; elmt++) {
+    xc = ibm->cent_x[elmt]; 
+    yc = ibm->cent_y[elmt]; 
+    zc = ibm->cent_z[elmt]; 
     dmin=1e10;
-
-    if (xc>=fsi->Min_xbc && xc<=fsi->Max_xbc) { //elmt inside the fluid domain
-    //if (xc>=0.022 && xc<=0.078) { //elmt inside the fluid domain
-    //if (xc>=0.1 && xc<=0.3) { //elmt inside the fluid domain
-    //if (zc>4.7 && zc<4.7515 || yc>.1 && yc<.25005 || xc>.1 && xc<.25005) { //elmt inside the fluid domain
-    //if (zc>0.0000 && yc>0.0000  && xc>0.0000) {
-    //if (nfy>=0.0000  && nfz>=0.0000) {
-      elmtinfo[elmt].n_P=1;
-      //for (nbn=0; nbn<nbnumber; nbn ++) {
-      current = user->ibmlist[ibi].head;
+                n_P = 0;
+				my_rank = 0;
+                Clsnbpt_i = 0;
+                Clsnbpt_j = 0;
+                Clsnbpt_k = 0;	
+	if (xc>=DCoorXs && xc<DCoorXe && yc>=DCoorYs && yc<DCoorYe && zc>=DCoorZs && zc<DCoorZe) {
+		for (k=lzs; k<lze; k++) {
+		for (j=lys; j<lye; j++) {
+		for (i=lxs; i<lxe; i++) {
+			x = coor[k][j][i].x;
+			y = coor[k][j][i].y;
+			z = coor[k][j][i].z;		
+			dist = (x-xc)*(x-xc)+(y-yc)*(y-yc)+(z-zc)*(z-zc);
+			if (dmin>dist) {
+			  dmin = dist;
+			  n_P = 1;
+			  my_rank = world_rank+1;
+			  Clsnbpt_i = i;
+			  Clsnbpt_j = j;
+			  Clsnbpt_k = k;
+			}
+		}
+		}
+		}
+	}
+	
+/* 	current = user->ibmlist[ibi].head;
       while (current) {
 	ibminfo = &current->ibm_intp;
 	current = current->next;	
@@ -252,26 +519,392 @@ PetscErrorCode Closest_NearBndryPt_ToSurfElmt(UserCtx *user, IBMNodes *ibm, Surf
 	  x=coor[k][j][i].x;
 	  y=coor[k][j][i].y;
 	  z=coor[k][j][i].z;
-	
 	  dist=(x-xc)*(x-xc)+(y-yc)*(y-yc)+(z-zc)*(z-zc);
-
-	if (dmin>dist) {
-	  dmin=dist;
-	  elmtinfo[elmt].Clsnbpt_i=i;
-	  elmtinfo[elmt].Clsnbpt_j=j;
-	  elmtinfo[elmt].Clsnbpt_k=k;
-
+		if (dmin>dist) {
+		  dmin=dist;
+				n_P = 1;
+				my_rank = world_rank+1;
+				  Clsnbpt_i = i;
+				  Clsnbpt_j = j;
+				  Clsnbpt_k = k;
+		}
 	}
-	}
-      }      
-/*       PetscPrintf(PETSC_COMM_SELF, "%d %d %d %d %d %le %le %le\n",elmt,elmtinfo[elmt].n_P,elmtinfo[elmt].Clsnbpt_i, */
-/* 		elmtinfo[elmt].Clsnbpt_j,elmtinfo[elmt].Clsnbpt_k,xc,yc,zc ); */
+      } */
+	//	MPI_Bcast(&elmtinfo[elmt].n_P, 1, MPI_INT, 0, PETSC_COMM_WORLD);
+		//MPI_Bcast(&elmtinfo[elmt].Clsnbpt_i, 1, MPI_INT, 0, PETSC_COMM_WORLD);
+		//MPI_Bcast(&elmtinfo[elmt].Clsnbpt_j, 1, MPI_INT, 0, PETSC_COMM_WORLD);
+		//MPI_Bcast(&elmtinfo[elmt].Clsnbpt_k, 1, MPI_INT, 0, PETSC_COMM_WORLD);
 
+	MPI_Allreduce(&n_P, &elmtinfo[elmt].n_P, 1, MPI_INT, MPI_SUM, PETSC_COMM_WORLD);
+	MPI_Allreduce(&my_rank, &elmtinfo[elmt].rank, 1, MPI_INT, MPI_SUM, PETSC_COMM_WORLD);
+	MPI_Allreduce(&Clsnbpt_i, &elmtinfo[elmt].Clsnbpt_i, 1, MPI_INT, MPI_SUM, PETSC_COMM_WORLD);
+	MPI_Allreduce(&Clsnbpt_j, &elmtinfo[elmt].Clsnbpt_j, 1, MPI_INT, MPI_SUM, PETSC_COMM_WORLD);
+	MPI_Allreduce(&Clsnbpt_k, &elmtinfo[elmt].Clsnbpt_k, 1, MPI_INT, MPI_SUM, PETSC_COMM_WORLD);
+  }
+/*	for (elmt=0; elmt<n_elmt; elmt++) {
+		    xc=ibm->cent_x[elmt]; yc=ibm->cent_y[elmt]; zc=ibm->cent_z[elmt]; 
+			PetscPrintf(PETSC_COMM_WORLD, "elmt %d Clsnbpt %d %d %d xc=%f yc=%f zc=%f \n", elmt, elmtinfo[elmt].Clsnbpt_i, elmtinfo[elmt].Clsnbpt_j, elmtinfo[elmt].Clsnbpt_k,xc,yc,zc);
+	}*/
+DAVecRestoreArray(fda, user->Cent,&coor);
+return(0);
+}
+
+PetscErrorCode Closest_NearBndryPt_ToSurfElmt3(UserCtx *user, IBMNodes *ibm, SurfElmtInfo *elmtinfo, FSInfo *fsi, PetscInt ibi)
+{
+  	DA	fda = user->fda;
+	DALocalInfo	info = user->info;
+	PetscInt	xs = info.xs, xe = info.xs + info.xm;
+	PetscInt  	ys = info.ys, ye = info.ys + info.ym;
+	PetscInt	zs = info.zs, ze = info.zs + info.zm;
+	PetscInt	mx = info.mx, my = info.my, mz = info.mz; 
+	PetscInt      lxs, lxe, lys, lye, lzs, lze, lxee, lyee, lzee;
+	PetscReal     DCoorXs = 1e10, DCoorXe = -1e10, DCoorYs = 1e10, DCoorYe = -1e10, DCoorZs = 1e10, DCoorZe = -1e10; // coordinate of domain start and end position //ASR 
+
+	lxs = xs; lxe = xe; lxee = xe;
+	lys = ys; lye = ye; lyee = ye;
+	lzs = zs; lze = ze; lzee = ze;
+
+	if (xs==0) lxs = xs+1; 
+	if (ys==0) lys = ys+1; 
+	if (zs==0) lzs = zs+1; 
+	if (xe==mx) {lxe = xe-1; lxe = xe-2; }
+	if (ye==my) {lye = ye-1; lye = ye-2; }
+	if (ze==mz) {lze = ze-1; lze = ze-2; }
+	
+		int nPy = lye - lys + 1;
+		int nPz = lze - lzs + 1;
+		int count = 0;
+		int nPloy, insideDomain;
+		int nPerimeter = 2*nPy + 2*(nPz-2);
+		Point *polygon;
+		PetscMalloc(nPerimeter*sizeof(Point), &polygon);
+
+	PetscInt	i, j, k;
+	PetscInt      n_elmt = ibm->n_elmt;
+	PetscInt      elmt, Clsnbpt_i, Clsnbpt_j, Clsnbpt_k, n_P;
+	Cmpnts        ***coor;
+	PetscReal     xc,yc,zc; // tri shape surface elmt center coords
+	PetscReal     x,y,z;    // near bndry pt coords
+	PetscReal     dist, dmin;     // distance between surf elmt to near bndry pt
+	IBMInfo       *ibminfo;
+	IBMListNode   *current;
+	PetscInt world_size, world_rank, rank;
+	MPI_Comm_size(PETSC_COMM_WORLD, &world_size);
+	MPI_Comm_rank(PETSC_COMM_WORLD, &world_rank);
+  
+  
+  DAVecGetArray(fda, user->Cent,&coor); //ASR
+
+  for (k=lzs; k<lze; k++) {
+    for (j=lys; j<lye; j++) {
+      for (i=lxs; i<lxe; i++) {
+		DCoorXs = min(DCoorXs,coor[k][j][i].x);
+		DCoorXe = max(DCoorXe,coor[k][j][i].x);
+		DCoorYs = min(DCoorYs,coor[k][j][i].y);
+		DCoorYe = max(DCoorYe,coor[k][j][i].y);
+		DCoorZs = min(DCoorZs,coor[k][j][i].z);
+		DCoorZe = max(DCoorZe,coor[k][j][i].z);
+      }
     }
   }
+
+	for (elmt=0; elmt<n_elmt; elmt++) {
+		xc = ibm->cent_x[elmt]; 
+		yc = ibm->cent_y[elmt]; 
+		zc = ibm->cent_z[elmt]; 
+		Point p = {yc, zc};
+		dmin=1e10;
+		n_P = 0;
+		rank = 0;
+		Clsnbpt_i = 0;
+		Clsnbpt_j = 0;
+		Clsnbpt_k = 0;	
+		if (xc>=-1e10 && xc<=1e10) {
+		for (i=lxs; i<lxe; i++) {
+			count = -1;
+			k = lzs;
+			for (j=lys; j<lye; j++) {
+				y = coor[k][j][i].y;
+				z = coor[k][j][i].z;
+				count = count+1;
+				polygon[count].x = y;
+				polygon[count].y = z;				
+				 	
+			}
+			j = lye-1;
+			for (k=lzs+1; k<lze; k++) {
+				y = coor[k][j][i].y;
+				z = coor[k][j][i].z;		
+				count = count+1;
+				polygon[count].x = y;
+				polygon[count].y = z;
+			}
+			k = lze-1;
+			for (j=lye-2; j>=lys; j--) {
+				y = coor[k][j][i].y;
+				z = coor[k][j][i].z;
+				count = count+1;				
+				polygon[count].x = y;
+				polygon[count].y = z;
+			}
+			j = lys;
+			for (k=lze-2; k>lzs+1; k--) {
+				y = coor[k][j][i].y;
+				z = coor[k][j][i].z;		
+				count = count+1;
+				polygon[count].x = y;
+				polygon[count].y = z;
+			}			
+			if (!rank && elmt==1 && i==1) {
+				FILE *f;
+				char filen[80];
+				sprintf(filen, "polygon.dat");
+				f = fopen(filen, "w");
+				PetscFPrintf(PETSC_COMM_WORLD, f, "%e %e/n", p.x, p.y);
+				for(int m = 0; m<=count; m++){
+					PetscFPrintf(PETSC_COMM_WORLD, f, "%e %e/n", polygon[m].x, polygon[m].y);
+				}
+				fclose(f);
+			}
+			insideDomain = checkInside(polygon, count, p);
+			if(insideDomain==1){
+				break;
+			}else{ n_P= 0;}
+			
+		}
+		
+		if(insideDomain==1){
+			for (k=lzs; k<lze; k++) {
+			for (j=lys; j<lye; j++) {
+			for (i=lxs; i<lxe; i++) {
+				x = coor[k][j][i].x;
+				y = coor[k][j][i].y;
+				z = coor[k][j][i].z;		
+				dist = (x-xc)*(x-xc)+(y-yc)*(y-yc)+(z-zc)*(z-zc);
+				if (dmin>dist) {
+				  dmin = dist;
+				  n_P = 1;
+				  rank = world_rank+1;
+				  Clsnbpt_i = i;
+				  Clsnbpt_j = j;
+				  Clsnbpt_k = k;
+				}
+			}}}
+		}
+	}
+	else{
+		n_P = 0;
+	}
+	MPI_Allreduce(&n_P, &elmtinfo[elmt].n_P, 1, MPI_INT, MPI_SUM, PETSC_COMM_WORLD);
+	MPI_Allreduce(&rank, &elmtinfo[elmt].rank, 1, MPI_INT, MPI_SUM, PETSC_COMM_WORLD);
+	MPI_Allreduce(&Clsnbpt_i, &elmtinfo[elmt].Clsnbpt_i, 1, MPI_INT, MPI_SUM, PETSC_COMM_WORLD);
+	MPI_Allreduce(&Clsnbpt_j, &elmtinfo[elmt].Clsnbpt_j, 1, MPI_INT, MPI_SUM, PETSC_COMM_WORLD);
+	MPI_Allreduce(&Clsnbpt_k, &elmtinfo[elmt].Clsnbpt_k, 1, MPI_INT, MPI_SUM, PETSC_COMM_WORLD);
+  }
+  
+  	PetscInt n_v=ibm->n_v;
+	if (!rank) {
+		FILE *f;
+		char filen[80];
+		sprintf(filen, "initialCheckTemp.dat");
+		f = fopen(filen, "w");
+		PetscFPrintf(PETSC_COMM_WORLD, f, "TITLE=\"3D TRIANGULAR SURFACE DATA\"\n");
+		PetscFPrintf(PETSC_COMM_WORLD, f, "Variables=\"x\",\"y\",\"z\",\"n_p\",\"FoundAroundcell\",\"rank\"\n");
+		PetscFPrintf(PETSC_COMM_WORLD, f, "ZONE T=\"TRIANGLES\", N=%d, E=%d, F=FEBLOCK, ET=TRIANGLE, VARLOCATION=([1-3]=NODAL,[4-6]=CELLCENTERED)\n", n_v, n_elmt);
+		for (i=0; i<n_v; i++) {
+			PetscFPrintf(PETSC_COMM_WORLD, f, "%e ", ibm->x_bp[i]);
+		}PetscFPrintf(PETSC_COMM_WORLD, f, "\n");
+		for (i=0; i<n_v; i++) {
+			PetscFPrintf(PETSC_COMM_WORLD, f, "%e ", ibm->y_bp[i]);
+		}PetscFPrintf(PETSC_COMM_WORLD, f, "\n");
+		for (i=0; i<n_v; i++) {	
+			PetscFPrintf(PETSC_COMM_WORLD, f, "%e ", ibm->z_bp[i]);
+		}PetscFPrintf(PETSC_COMM_WORLD, f, "\n");
+		for (i=0; i<n_elmt; i++) {
+			PetscFPrintf(PETSC_COMM_WORLD, f, "%d ", elmtinfo[i].n_P);
+		}PetscFPrintf(PETSC_COMM_WORLD, f, "\n");
+		for (i=0; i<n_elmt; i++) {
+			PetscFPrintf(PETSC_COMM_WORLD, f, "%d ", elmtinfo[i].FoundAroundcell);
+		}PetscFPrintf(PETSC_COMM_WORLD, f, "\n");
+		for (i=0; i<n_elmt; i++) {
+			PetscFPrintf(PETSC_COMM_WORLD, f, "%d ", elmtinfo[i].rank);
+		}PetscFPrintf(PETSC_COMM_WORLD, f, "\n");
+		for (i=0; i<n_elmt; i++) {
+			PetscFPrintf(PETSC_COMM_WORLD, f, "%d %d %d\n", ibm->nv1[i]+1, ibm->nv2[i]+1, ibm->nv3[i]+1);
+		}
+		fclose(f);
+	}
+  
+DAVecRestoreArray(fda, user->Cent,&coor);
+return(0);
+}
+
+//This is the best one - no missing element (n_P =0) or no overlap (n_P = 2)
+PetscErrorCode Closest_NearBndryPt_ToSurfElmt4(UserCtx *user, IBMNodes *ibm, SurfElmtInfo *elmtinfo, FSInfo *fsi, PetscInt ibi)
+{
+  DA	fda = user->fda;
+  DALocalInfo	info = user->info;
+  PetscInt	xs = info.xs, xe = info.xs + info.xm;
+  PetscInt  	ys = info.ys, ye = info.ys + info.ym;
+  PetscInt	zs = info.zs, ze = info.zs + info.zm;
+  PetscInt	mx = info.mx, my = info.my, mz = info.mz; 
+  PetscInt      lxs, lxe, lys, lye, lzs, lze;
+  PetscReal     DCoorXs = 1e10, DCoorXe = -1e10, DCoorYs = 1e10, DCoorYe = -1e10, DCoorZs = 1e10, DCoorZe = -1e10; // coordinate of domain start and end position //ASR 
+  PetscInt count = 0;
+  lxs = xs; lxe = xe;
+  lys = ys; lye = ye;
+  lzs = zs; lze = ze;
+
+   if (xs==0) lxs = xs+1; 
+   if (ys==0) lys = ys+1; 
+   if (zs==0) lzs = zs+1; 
+   if (xe==mx) lxe = xe-1; 
+   if (ye==my) lye = ye-1; 
+   if (ze==mz) lze = ze-1; 
+
+  int	i, j, k; 
+
+
+  //PetscInt      nbnumber = user->ibmnumber;
+  PetscInt      n_elmt = ibm->n_elmt;
+  PetscInt      elmt, Clsnbpt_i, Clsnbpt_j, Clsnbpt_k, n_P;
+  Cmpnts        ***coor;
+  PetscReal     xc,yc,zc; // tri shape surface elmt center coords
+  PetscReal     x,y,z;    // near bndry pt coords
+  double     dist, dmin;     // distance between surf elmt to near bndry pt
+  double dmin2 = 1e9;
+
+  IBMInfo       *ibminfo;
+  IBMListNode   *current;
+
+   //PetscReal InASR[2][n_elmt], OutASR[2][n_elmt];
+//   double InASR[2];
+ //  double OutASR[2];  
+/*    int r = 2;
+	int c = n_elmt;
+    int *InASR[r]; 
+    for (i=0; i<r; i++) {
+         InASR[i] = (int *)malloc(c * sizeof(int)); 
+	}
+     
+  struct transfer { 
+        PetscReal dist; 
+        PetscInt  rank; 
+    } ASR_MPI_in[n_elmt], ASR_MPI_out[n_elmt];
+	*/
+	PetscInt rankOfMin;
+	PetscInt world_size, world_rank, my_rank;
+	MPI_Comm_size(PETSC_COMM_WORLD, &world_size);
+	MPI_Comm_rank(PETSC_COMM_WORLD, &world_rank);
+
+	double *dists;
+	if (world_rank == 0) {
+	  PetscMalloc(world_size*sizeof(double), &dists);
+	}
+	
+  DAVecGetArray(fda, user->Cent,&coor); //ASR
     
-  DAVecRestoreArray(fda, user->Cent,&coor);
-  return(0);
+   if (xs==0) DCoorXs = coor[lzs][lys][lxs].x;
+   if (ys==0) DCoorYs = coor[lzs][lys][lxs].y;
+   if (zs==0) DCoorZs = coor[lzs][lys][lxs].z;
+   if (xe==mx) DCoorXe = coor[lzs][lys][lxe].x;
+   if (ye==my) DCoorYe = coor[lzs][lye][lxs].y;
+   if (ze==mz) DCoorZe = coor[lze][lys][lxs].z;
+  
+  MPI_Allreduce (&DCoorXs, &DCoorXs, 1, MPI_DOUBLE, MPI_MIN, PETSC_COMM_WORLD);
+  MPI_Allreduce (&DCoorYs, &DCoorYs, 1, MPI_DOUBLE, MPI_MIN, PETSC_COMM_WORLD);
+  MPI_Allreduce (&DCoorZs, &DCoorZs, 1, MPI_DOUBLE, MPI_MIN, PETSC_COMM_WORLD);
+  MPI_Allreduce (&DCoorXe, &DCoorXe, 1, MPI_DOUBLE, MPI_MAX, PETSC_COMM_WORLD);
+  MPI_Allreduce (&DCoorYe, &DCoorYe, 1, MPI_DOUBLE, MPI_MAX, PETSC_COMM_WORLD);
+  MPI_Allreduce (&DCoorZe, &DCoorZe, 1, MPI_DOUBLE, MPI_MAX, PETSC_COMM_WORLD);
+
+
+  for (elmt=0; elmt<n_elmt; elmt++) {
+    xc=ibm->cent_x[elmt]; 
+    yc=ibm->cent_y[elmt]; 
+    zc=ibm->cent_z[elmt]; 
+    dmin=1e10;
+	Clsnbpt_i = 0;
+	Clsnbpt_j = 0;
+	Clsnbpt_k = 0;
+	n_P = 0;
+	my_rank = 0;
+	//if (xc>=DCoorXs && xc<=DCoorXe && yc>=DCoorYs && yc<=DCoorYe && zc>=DCoorZs && zc<=DCoorZe) { //if inside the global domain
+	//	MPI_Bcast(&elmtinfo[elmt].n_P, 1, MPI_INT, 0, PETSC_COMM_WORLD);
+		for (k=lzs; k<lze; k++) {
+		for (j=lys; j<lye; j++) {
+		for (i=lxs; i<lxe; i++) {
+			x = coor[k][j][i].x;
+			y = coor[k][j][i].y;
+			z = coor[k][j][i].z;		
+			dist = (x-xc)*(x-xc)+(y-yc)*(y-yc)+(z-zc)*(z-zc);
+			if (dmin>dist) {
+			  dmin = dist;
+			}
+		}}}
+	PetscBarrier(PETSC_NULL);
+	MPI_Gather(&dmin, 1, MPI_DOUBLE, dists, 1, MPI_DOUBLE, 0, PETSC_COMM_WORLD);
+	if (world_rank == 0) {
+	  for(i = 0; i < world_size; i++){
+		if(dists[i]<dmin2){
+			dmin2 = dists[i];
+			rankOfMin = i;
+			}
+	  }
+	}
+        PetscBarrier(PETSC_NULL);
+	MPI_Bcast(&rankOfMin, 1, MPI_INT, 0, PETSC_COMM_WORLD);
+	if(world_rank == rankOfMin){
+		my_rank  = world_rank+1;
+		dmin = 1e10;
+		for (k=lzs; k<lze; k++) {
+		for (j=lys; j<lye; j++) {
+		for (i=lxs; i<lxe; i++) {
+			x = coor[k][j][i].x;
+			y = coor[k][j][i].y;
+			z = coor[k][j][i].z;		
+			dist = (x-xc)*(x-xc)+(y-yc)*(y-yc)+(z-zc)*(z-zc);
+			if (dmin>dist) {
+			  dmin = dist;
+			  n_P = 1;
+			  Clsnbpt_i = i;
+			  Clsnbpt_j = j;
+			  Clsnbpt_k = k;
+			}
+		}}}
+
+	}	
+/*	}
+	else{ //if outside the global domain
+			  n_P = 0;
+			  Clsnbpt_i = 0;
+			  Clsnbpt_j = 0;
+			  Clsnbpt_k = 0;
+			  my_rank = 0;
+		}*/
+	
+  	//MPI_Allreduce (&InASR, &OutASR, 1, MPI_DOUBLE_INT, MPI_MINLOC, PETSC_COMM_WORLD);
+	
+	MPI_Allreduce (&my_rank, &elmtinfo[elmt].rank, 1, MPI_INT, MPI_SUM, PETSC_COMM_WORLD);
+	MPI_Allreduce (&n_P, &elmtinfo[elmt].n_P, 1, MPI_INT, MPI_SUM, PETSC_COMM_WORLD);
+	MPI_Allreduce (&Clsnbpt_i, &elmtinfo[elmt].Clsnbpt_i, 1, MPI_INT, MPI_SUM, PETSC_COMM_WORLD);
+	MPI_Allreduce (&Clsnbpt_j, &elmtinfo[elmt].Clsnbpt_j, 1, MPI_INT, MPI_SUM, PETSC_COMM_WORLD);
+	MPI_Allreduce (&Clsnbpt_k, &elmtinfo[elmt].Clsnbpt_k, 1, MPI_INT, MPI_SUM, PETSC_COMM_WORLD);
+  }
+  
+  	//MPI_Allreduce (ASR_MPI_in, ASR_MPI_out, n_elmt, MPI_DOUBLE_INT, MPI_MINLOC, PETSC_COMM_WORLD);
+	//MPI_Allreduce (InASR, OutASR, n_elmt, MPI_DOUBLE_INT, MPI_MINLOC, PETSC_COMM_WORLD);
+  
+/*	for (elmt=0; elmt<n_elmt; elmt++) {
+		    	xc = ibm->cent_x[elmt]; 
+			yc = ibm->cent_y[elmt]; 
+			zc = ibm->cent_z[elmt];
+if (elmtinfo[elmt].n_P!=1){ 
+			PetscPrintf(PETSC_COMM_WORLD, "elmt %d n_P %d  xc=%f yc=%f zc=%f \n", elmt, elmtinfo[elmt].n_P,xc,yc,zc);
+	}	
+}*/
+DAVecRestoreArray(fda, user->Cent,&coor);
+return(0);
 }
 
 PetscErrorCode distance(Cmpnts p1, Cmpnts p2, Cmpnts p3, Cmpnts p4, Cmpnts p, PetscReal *d)
@@ -300,8 +933,8 @@ PetscErrorCode distance(Cmpnts p1, Cmpnts p2, Cmpnts p3, Cmpnts p4, Cmpnts p, Pe
   yc = 0.25 * (p1.y + p2.y + p3.y + p4.y);
   zc = 0.25 * (p1.z + p2.z + p3.z + p4.z);
 
-  *d = (p.x - xc) * xn1 + (p.y - yc) * yn1 + (p.z - zc) * zn1;
-  if (PetscAbsReal(*d)<1.e-6) *d=0.;
+  *d = (p.x - xc) * xn1 + (p.y - yc) * yn1 + (p.z - zc) * zn1;   
+  //if (PetscAbsReal(*d)<1.e-6) *d=0.; //by ASR
   return (0);
 }
 
@@ -316,20 +949,19 @@ PetscTruth ISInsideCell(Cmpnts p, Cmpnts cell[8], PetscReal d[6])
   // j direction
   distance(cell[0], cell[4], cell[5], cell[1], p, &(d[2]));
   if (d[2]<0) return(PETSC_FALSE);
-
   distance(cell[3], cell[2], cell[6], cell[7], p, &(d[3]));
   if (d[3]<0) return(PETSC_FALSE);
 
   // i direction
   distance(cell[0], cell[3], cell[7], cell[4], p, &(d[0]));
   if (d[0]<0) return(PETSC_FALSE);
-  
   distance(cell[1], cell[5], cell[6], cell[2], p, &(d[1]));
   if (d[1]<0) return(PETSC_FALSE);
+  
   return(PETSC_TRUE);
 }
 
-PetscErrorCode GridCellaroundSurElmt(UserCtx *user, IBMNodes *ibm,SurfElmtInfo *elmtinfo)
+PetscErrorCode GridCellaroundSurElmt(UserCtx *user, IBMNodes *ibm, SurfElmtInfo *elmtinfo)
 {
   DA	da = user->da, fda = user->fda;
   DALocalInfo	info = user->info;
@@ -346,8 +978,7 @@ PetscErrorCode GridCellaroundSurElmt(UserCtx *user, IBMNodes *ibm,SurfElmtInfo *
   if (xs==0) lxs = xs+1;
   if (ys==0) lys = ys+1;
   if (zs==0) lzs = zs+1;
-
-  if (xe==mx) lxe = xe-2;
+  if (xe==mx) lxe = xe-2; // if mx = 21, coor[k][j][20] = 0 always;
   if (ye==my) lye = ye-2;
   if (ze==mz) lze = ze-2;
 
@@ -355,98 +986,142 @@ PetscErrorCode GridCellaroundSurElmt(UserCtx *user, IBMNodes *ibm,SurfElmtInfo *
   PetscInt	i, j, k, inbn,jnbn,knbn, notfound;
 
   PetscInt      n_elmt = ibm->n_elmt;
-  PetscInt      elmt, nradius=20;
+  PetscInt      elmt, nradius=10;
   Cmpnts        ***coor,pc,cell[8];
   PetscReal     d[6];
-  PetscReal     AroundCellSum,Aroundcellnum;
+  PetscInt     AroundCellSum,Aroundcellnum;
 
   PetscInt	rank;
   MPI_Comm_rank(PETSC_COMM_WORLD, &rank);
 
   DAVecGetArray(fda, user->lCent,&coor);
-  Aroundcellnum=0;
+  Aroundcellnum = 0;
   for (elmt=0; elmt<n_elmt; elmt++) {
-  if (elmtinfo[elmt].n_P>0){ 
-    pc.x=ibm->cent_x[elmt]; 
-    pc.y=ibm->cent_y[elmt]; 
-    pc.z=ibm->cent_z[elmt]; 
+		elmtinfo[elmt].FoundAroundcell=0;
+	  if (elmtinfo[elmt].n_P>0){ 
+		pc.x=ibm->cent_x[elmt]; 
+		pc.y=ibm->cent_y[elmt]; 
+		pc.z=ibm->cent_z[elmt]; 
 
-    inbn=elmtinfo[elmt].Clsnbpt_i;
-    jnbn=elmtinfo[elmt].Clsnbpt_j;
-    knbn=elmtinfo[elmt].Clsnbpt_k;
+		inbn = elmtinfo[elmt].Clsnbpt_i;
+		jnbn = elmtinfo[elmt].Clsnbpt_j;
+		knbn = elmtinfo[elmt].Clsnbpt_k;
 
-    zstart=knbn-nradius; zend=knbn+nradius;
-    ystart=jnbn-nradius; yend=jnbn+nradius;
-    xstart=inbn-nradius; xend=inbn+nradius;
+		zstart = knbn-nradius; zend = knbn+nradius;
+		ystart = jnbn-nradius; yend = jnbn+nradius;
+		xstart = inbn-nradius; xend = inbn+nradius;
 
-    if (zstart<lzs) zstart=lzs;
-    if (ystart<lys) ystart=lys;
-    if (xstart<lxs) xstart=lxs;
-    if (zend>lze) zend=lze;
-    if (yend>lye) yend=lye;
-    if (xend>lxe) xend=lxe;
+		if (zstart<lzs) zstart = lzs;
+		if (ystart<lys) ystart = lys;
+		if (xstart<lxs) xstart = lxs;
+		if (zend>lze) zend = lze;
+		if (yend>lye) yend = lye;
+		if (xend>lxe) xend = lxe;
 
-    notfound=0;
-    elmtinfo[elmt].FoundAroundcell=0;
+		for (k=zstart; k<zend; k++) {
+		for (j=ystart; j<yend; j++) {
+		for (i=xstart; i<xend; i++) {
+			cell[0] = coor[k  ][j  ][i  ];
+			cell[1] = coor[k  ][j  ][i+1]; //ASR_Check
+			cell[2] = coor[k  ][j+1][i+1];
+			cell[3] = coor[k  ][j+1][i  ];
+		
+			cell[4] = coor[k+1][j  ][i  ];
+			cell[5] = coor[k+1][j  ][i+1];
+			cell[6] = coor[k+1][j+1][i+1];
+			cell[7] = coor[k+1][j+1][i  ];			
+		
+			if(ISInsideCell(pc, cell, d)){
+				elmtinfo[elmt].icell=i;
+				elmtinfo[elmt].jcell=j;
+				elmtinfo[elmt].kcell=k;
+				elmtinfo[elmt].FoundAroundcell=1;
 
-    for (k=zstart; k<zend; k++) {
-      for (j=ystart; j<yend; j++) {
-	for (i=xstart; i<xend; i++) {
-	  cell[0] = coor[k  ][j  ][i  ];
-	  cell[1] = coor[k  ][j  ][i+1];
-	  cell[2] = coor[k  ][j+1][i+1];
-	  cell[3] = coor[k  ][j+1][i  ];
-	  
-	  cell[4] = coor[k+1][j  ][i  ];
-	  cell[5] = coor[k+1][j  ][i+1];
-	  cell[6] = coor[k+1][j+1][i+1];
-	  cell[7] = coor[k+1][j+1][i  ];
-	
-	  if(ISInsideCell(pc, cell, d)){
-	    elmtinfo[elmt].icell=i;
-	    elmtinfo[elmt].jcell=j;
-	    elmtinfo[elmt].kcell=k;
-	    elmtinfo[elmt].FoundAroundcell=1;
-	    //if (j==22)  PetscPrintf(PETSC_COMM_SELF, "%le %le\n",coor[k][j][i].y, coor[k][j+1][i].y);
-	    // correction if pt exactly on one side of the cell
-	    if (fabs(d[0])<1e-8 && 
-		ibm->nf_x[elmt]*(cell[1].x-cell[0].x)<0.) elmtinfo[elmt].icell=i-1;
-	    if (fabs(d[1])<1e-8 && 
-		ibm->nf_x[elmt]*(cell[0].x-cell[1].x)<0.) elmtinfo[elmt].icell=i+1;
-	    if (fabs(d[2])<1e-8 && 
-		ibm->nf_y[elmt]*(cell[3].y-cell[0].y)<0.) elmtinfo[elmt].jcell=j-1;
-	    if (fabs(d[3])<1e-8 && 
-		ibm->nf_y[elmt]*(cell[0].y-cell[3].y)<0.) elmtinfo[elmt].jcell=j+1;
-	    if (fabs(d[4])<1e-8 && 
-		ibm->nf_z[elmt]*(cell[4].z-cell[0].z)<0.) elmtinfo[elmt].kcell=k-1;
-	    if (fabs(d[5])<1e-8 && 
-		ibm->nf_z[elmt]*(cell[0].z-cell[4].z)<0.) elmtinfo[elmt].kcell=k+1;
 
-	    Aroundcellnum+=1.;
-	    notfound=1;
-	  }
+/*if(elmt<=29473 && elmt>=29473){
+  PetscPrintf(PETSC_COMM_SELF, "%d %d %d\n",elmtinfo[elmt].icell,elmtinfo[elmt].jcell,elmtinfo[elmt].kcell);
+  PetscPrintf(PETSC_COMM_SELF, "%f %f %f;\n",pc.x,pc.y,pc.z);
+  for (int cIndex=0;cIndex<8;cIndex++){
+   PetscPrintf(PETSC_COMM_SELF, "%f %f %f;\n",cell[cIndex].x,cell[cIndex].y,cell[cIndex].z);
+  }
+}*/ 
+
+
+				// correction if pt exactly on one side of the cell
+				if (fabs(d[0])<1e-6 && 
+				ibm->nf_x[elmt]*(cell[1].x-cell[0].x)<0.) elmtinfo[elmt].icell=i-1;//ASR_Check
+				if (fabs(d[1])<1e-6 && 
+				ibm->nf_x[elmt]*(cell[0].x-cell[1].x)<0.) elmtinfo[elmt].icell=i+1;
+				if (fabs(d[2])<1e-6 && 
+				ibm->nf_y[elmt]*(cell[3].y-cell[0].y)<0.) elmtinfo[elmt].jcell=j-1;
+				if (fabs(d[3])<1e-6 && 
+				ibm->nf_y[elmt]*(cell[0].y-cell[3].y)<0.) elmtinfo[elmt].jcell=j+1;
+				if (fabs(d[4])<1e-6 && 
+				ibm->nf_z[elmt]*(cell[4].z-cell[0].z)<0.) elmtinfo[elmt].kcell=k-1;
+				if (fabs(d[5])<1e-6 && 
+				ibm->nf_z[elmt]*(cell[0].z-cell[4].z)<0.) elmtinfo[elmt].kcell=k+1;
+
+/*if(elmt<=29473 && elmt>=29473){
+  PetscPrintf(PETSC_COMM_SELF, "%d %d %d\n",elmtinfo[elmt].icell,elmtinfo[elmt].jcell,elmtinfo[elmt].kcell);
+  for (int cIndex=0;cIndex<6;cIndex++){
+   PetscPrintf(PETSC_COMM_SELF, "%e ",d[cIndex]);
+   PetscPrintf(PETSC_COMM_SELF, "\n");
+  }
+}*/
+  
+
+				Aroundcellnum+=1.;
+			}
+		}}}
 	}
-      }	
-    }
-
-/*      PetscPrintf(PETSC_COMM_SELF, "%d %d %d %d %d %le %le %le\n",elmt,elmtinfo[elmt].icell,elmtinfo[elmt].jcell,  */
-/* 		 elmtinfo[elmt].kcell,rank,pc.x,pc.y,pc.z);  */
-
   }
-  }
-  PetscGlobalSum(&Aroundcellnum, &AroundCellSum, PETSC_COMM_WORLD);
-  PetscPrintf(PETSC_COMM_WORLD, "n_elmt & number of cells %d %le\n",n_elmt,AroundCellSum);
+  /*
+    PetscInt n_v=ibm->n_v;
+	if (!rank) {
+		FILE *f;
+		char filen[80];
+		sprintf(filen, "initialCheckTemp.dat");
+		f = fopen(filen, "w");
+		PetscFPrintf(PETSC_COMM_WORLD, f, "TITLE=\"3D TRIANGULAR SURFACE DATA\"\n");
+		PetscFPrintf(PETSC_COMM_WORLD, f, "Variables=\"x\",\"y\",\"z\",\"n_p\",\"FoundAroundcell\",\"rank\"\n");
+		PetscFPrintf(PETSC_COMM_WORLD, f, "ZONE T=\"TRIANGLES\", N=%d, E=%d, F=FEBLOCK, ET=TRIANGLE, VARLOCATION=([1-3]=NODAL,[4-6]=CELLCENTERED)\n", n_v, n_elmt);
+		for (i=0; i<n_v; i++) {
+			PetscFPrintf(PETSC_COMM_WORLD, f, "%e ", ibm->x_bp[i]);
+		}PetscFPrintf(PETSC_COMM_WORLD, f, "\n");
+		for (i=0; i<n_v; i++) {
+			PetscFPrintf(PETSC_COMM_WORLD, f, "%e ", ibm->y_bp[i]);
+		}PetscFPrintf(PETSC_COMM_WORLD, f, "\n");
+		for (i=0; i<n_v; i++) {	
+			PetscFPrintf(PETSC_COMM_WORLD, f, "%e ", ibm->z_bp[i]);
+		}PetscFPrintf(PETSC_COMM_WORLD, f, "\n");
+		for (i=0; i<n_elmt; i++) {
+			PetscFPrintf(PETSC_COMM_WORLD, f, "%d ", elmtinfo[i].n_P);
+		}PetscFPrintf(PETSC_COMM_WORLD, f, "\n");
+		for (i=0; i<n_elmt; i++) {
+			PetscFPrintf(PETSC_COMM_WORLD, f, "%d ", elmtinfo[i].FoundAroundcell);
+		}PetscFPrintf(PETSC_COMM_WORLD, f, "\n");
+		for (i=0; i<n_elmt; i++) {
+			PetscFPrintf(PETSC_COMM_WORLD, f, "%d ", elmtinfo[i].rank);
+		}PetscFPrintf(PETSC_COMM_WORLD, f, "\n");
+		for (i=0; i<n_elmt; i++) {
+			PetscFPrintf(PETSC_COMM_WORLD, f, "%d %d %d\n", ibm->nv1[i]+1, ibm->nv2[i]+1, ibm->nv3[i]+1);
+		}
+		fclose(f);
+	}
+  */
+  MPI_Allreduce(&Aroundcellnum, &AroundCellSum, 1, MPI_INT, MPI_SUM, PETSC_COMM_WORLD);
+ // PetscGlobalSum(&Aroundcellnum, &AroundCellSum, PETSC_COMM_WORLD);
+  PetscPrintf(PETSC_COMM_WORLD, "n_elmt & number of cells %d and %d\n",n_elmt,AroundCellSum);
 
   DAVecRestoreArray(fda, user->lCent,&coor);
-
   return(0);
 }
 
-PetscErrorCode GridCellaround2ndElmt(UserCtx *user, IBMNodes *ibm,
+PetscErrorCode GridCellaround2ndElmt(UserCtx *user, IBMNodes *ibm, SurfElmtInfo *elmtinfo, 
 				     Cmpnts pc,PetscInt elmt,
 				     PetscInt knbn,PetscInt jnbn,
 				     PetscInt inbn, PetscInt *kin,
-				     PetscInt *jin, PetscInt *iin)
+				     PetscInt *jin, PetscInt *iin, PetscInt *foundFlag)
 {
   DA	da = user->da, fda = user->fda;
   DALocalInfo	info = user->info;
@@ -472,7 +1147,7 @@ PetscErrorCode GridCellaround2ndElmt(UserCtx *user, IBMNodes *ibm,
   PetscInt	i, j, k, notfound;
 
   PetscInt      n_elmt = ibm->n_elmt;
-  PetscInt      nradius=3;
+  PetscInt      nradius=10;
   Cmpnts        ***coor,cell[8];
   PetscReal     d[6];
   PetscReal     AroundCellSum,Aroundcellnum;
@@ -491,6 +1166,7 @@ PetscErrorCode GridCellaround2ndElmt(UserCtx *user, IBMNodes *ibm,
 /*     inbn=elmtinfo[elmt].Clsnbpt_i; */
 /*     jnbn=elmtinfo[elmt].Clsnbpt_j; */
 /*     knbn=elmtinfo[elmt].Clsnbpt_k; */
+//	if (inbn>=lxs && inbn<lxe && jnbn>=lys && jnbn<lye && knbn>=lzs && knbn<lze) {	    //ASR    
 
     zstart=knbn-nradius; zend=knbn+nradius;
     ystart=jnbn-nradius; yend=jnbn+nradius;
@@ -504,53 +1180,57 @@ PetscErrorCode GridCellaround2ndElmt(UserCtx *user, IBMNodes *ibm,
     if (xend>lxe) xend=lxe;
 
     notfound=0;
+	*foundFlag = 0;
 /*     elmtinfo[elmt].FoundAroundcell=0; */
 
     for (k=zstart; k<zend; k++) {
       for (j=ystart; j<yend; j++) {
-	for (i=xstart; i<xend; i++) {
-	  cell[0] = coor[k  ][j  ][i  ];
-	  cell[1] = coor[k  ][j  ][i+1];
-	  cell[2] = coor[k  ][j+1][i+1];
-	  cell[3] = coor[k  ][j+1][i  ];
-	  
-	  cell[4] = coor[k+1][j  ][i  ];
-	  cell[5] = coor[k+1][j  ][i+1];
-	  cell[6] = coor[k+1][j+1][i+1];
-	  cell[7] = coor[k+1][j+1][i  ];
-	
-	  if(ISInsideCell(pc, cell, d)){
-	    *kin=k;
-	    *jin=j;
-	    *iin=i;
-/* 	    elmtinfo[elmt].icell=i; */
-/* 	    elmtinfo[elmt].jcell=j; */
-/* 	    elmtinfo[elmt].kcell=k; */
-/* 	    elmtinfo[elmt].FoundAroundcell=1; */
-	    //if (j==22)  PetscPrintf(PETSC_COMM_SELF, "%le %le\n",coor[k][j][i].y, coor[k][j+1][i].y);
-	    // correction if pt exactly on one side of the cell
-	    if (fabs(d[0])<1e-8 && 
-		ibm->nf_x[elmt]*(cell[1].x-cell[0].x)<0.) *iin=i-1;//elmtinfo[elmt].icell=i-1;
-	    if (fabs(d[1])<1e-8 && 
-		ibm->nf_x[elmt]*(cell[0].x-cell[1].x)<0.) *iin=i+1;//elmtinfo[elmt].icell=i+1;
-	    if (fabs(d[2])<1e-8 && 
-		ibm->nf_y[elmt]*(cell[3].y-cell[0].y)<0.) *jin=j-1;//elmtinfo[elmt].jcell=j-1;
-	    if (fabs(d[3])<1e-8 && 
-		ibm->nf_y[elmt]*(cell[0].y-cell[3].y)<0.) *jin=j+1;//elmtinfo[elmt].jcell=j+1;
-	    if (fabs(d[4])<1e-8 && 
-		ibm->nf_z[elmt]*(cell[4].z-cell[0].z)<0.) *kin=k-1;//elmtinfo[elmt].kcell=k-1;
-	    if (fabs(d[5])<1e-8 && 
-		ibm->nf_z[elmt]*(cell[0].z-cell[4].z)<0.) *kin=k+1;//elmtinfo[elmt].kcell=k+1;
-
-	    Aroundcellnum+=1.;
-	    notfound=1;
-	    break;
-	  }
-	}
+		for (i=xstart; i<xend; i++) {
+		  cell[0] = coor[k  ][j  ][i  ];
+		  cell[1] = coor[k  ][j  ][i+1];
+		  cell[2] = coor[k  ][j+1][i+1];
+		  cell[3] = coor[k  ][j+1][i  ];
+		  
+		  cell[4] = coor[k+1][j  ][i  ];
+		  cell[5] = coor[k+1][j  ][i+1];
+		  cell[6] = coor[k+1][j+1][i+1];
+		  cell[7] = coor[k+1][j+1][i  ];
+		
+		  if(ISInsideCell(pc, cell, d)){
+			*kin=k;
+			*jin=j;
+			*iin=i;
+	/* 	    elmtinfo[elmt].icell=i; */
+	/* 	    elmtinfo[elmt].jcell=j; */
+	/* 	    elmtinfo[elmt].kcell=k; */
+	/* 	    elmtinfo[elmt].FoundAroundcell=1; */
+			//if (j==22)  PetscPrintf(PETSC_COMM_SELF, "%le %le\n",coor[k][j][i].y, coor[k][j+1][i].y);
+			// correction if pt exactly on one side of the cell
+					
+			if (fabs(d[0])<1e-8 && ibm->nf_x[elmt]*(cell[1].x-cell[0].x)<0.) *iin=i-1;//elmtinfo[elmt].icell=i-1;
+			if (fabs(d[1])<1e-8 && ibm->nf_x[elmt]*(cell[0].x-cell[1].x)<0.) *iin=i+1;//elmtinfo[elmt].icell=i+1;
+			if (fabs(d[2])<1e-8 && ibm->nf_y[elmt]*(cell[3].y-cell[0].y)<0.) *jin=j-1;//elmtinfo[elmt].jcell=j-1;
+			if (fabs(d[3])<1e-8 && ibm->nf_y[elmt]*(cell[0].y-cell[3].y)<0.) *jin=j+1;//elmtinfo[elmt].jcell=j+1;
+			if (fabs(d[4])<1e-8 && ibm->nf_z[elmt]*(cell[4].z-cell[0].z)<0.) *kin=k-1;//elmtinfo[elmt].kcell=k-1;
+			if (fabs(d[5])<1e-8 && ibm->nf_z[elmt]*(cell[0].z-cell[4].z)<0.) *kin=k+1;//elmtinfo[elmt].kcell=k+1;
+			
+			Aroundcellnum+=1.;
+			notfound=1;
+			*foundFlag = 1;
+			elmtinfo[elmt].FoundAround2ndCell=1;
+			break;
+		  }
+		}
       }	
     }
-
-    if (!notfound) PetscPrintf(PETSC_COMM_SELF, "2nd Around Cell WAS NOT FOUND!!!!!!!!!!!! %d %d %d %d\n", elmt,inbn,jnbn,knbn);
+//	}
+    if (!notfound) {
+		*iin = inbn;
+		*jin = jnbn;
+		*kin = knbn;
+		elmtinfo[elmt].FoundAround2ndCell=0;
+		PetscPrintf(PETSC_COMM_SELF, "2nd Around Cell WAS NOT FOUND!!!!!!!!!!!! %d %d %d %d\n", elmt,inbn,jnbn,knbn);
+	}
 /*      PetscPrintf(PETSC_COMM_SELF, "%d %d %d %d %d %le %le %le\n",elmt,elmtinfo[elmt].icell,elmtinfo[elmt].jcell,  */
 /* 		 elmtinfo[elmt].kcell,rank,pc.x,pc.y,pc.z);  */
 
@@ -576,8 +1256,6 @@ PetscErrorCode triangle_intp_fsi(Cpt2D p, Cpt2D p1, Cpt2D p2, Cpt2D p3,
   ibminfo[number].cr1 = (y23 * xp3 - x23 * yp3) / a;
   ibminfo[number].cr2 = (-y13 * xp3 + x13 * yp3) / a;
   ibminfo[number].cr3 = 1. - ibminfo[number].cr1 - ibminfo[number].cr2;
-  //  if (fabs(a)<1.-5)
-  //  PetscPrintf(PETSC_COMM_WORLD, "%e %e %e %e\n", y23*xp3, x23*yp3, ibminfo[number].cr1, ibminfo[number].cr2);
   if (ibminfo[number].cr3<0.)
     PetscPrintf(PETSC_COMM_WORLD, "SOMETHING WRONG!!!! fsi_intp Cr %d %le %le %le\n", number,ibminfo[number].cr3, ibminfo[number].cr2, ibminfo[number].cr1);
   
@@ -590,7 +1268,7 @@ PetscErrorCode triangle_intp2_fsi(Cpt2D p, Cpt2D p1, Cpt2D p2, Cpt2D p3,
   x13 = p1.x - p3.x; y13 = p1.y - p3.y;
   x23 = p2.x - p3.x; y23 = p2.y - p3.y;
   xp3 = p.x - p3.x; yp3 = p.y - p3.y;
-  a =x13 * y23 - x23 * y13;
+  a = x13 * y23 - x23 * y13;
   ibminfo[number].cs1 = (y23 * xp3 - x23 * yp3) / a;
   ibminfo[number].cs2 = (-y13 * xp3 + x13 * yp3) / a;
   ibminfo[number].cs3 = 1. - ibminfo[number].cs1 - ibminfo[number].cs2;
@@ -620,6 +1298,8 @@ PetscErrorCode fsi_InterceptionPoint(Cmpnts p, Cmpnts pc[8],
   PetscInt	i;
   Cmpnts	pint; // Interception point
   PetscReal	nfxt, nfyt, nfzt;
+  
+  PetscReal dxT, dyT, dzT;
 
   ibminfo[number].imode = -100;
   // k-plane
@@ -640,265 +1320,267 @@ PetscErrorCode fsi_InterceptionPoint(Cmpnts p, Cmpnts pc[8],
 
   for (i=0; i<12; i++) {
     p1 = pc[triangles[0][i]]; p2 = pc[triangles[1][i]], p3 = pc[triangles[2][i]];
+    dx1 = p.x - p1.x; dy1 = p.y - p1.y; dz1 = p.z - p1.z;   // a1 = p - p1
+    dx2 = p2.x - p1.x; dy2 = p2.y - p1.y; dz2 = p2.z - p1.z;// a2 = p2 - p1
+    dx3 = p3.x - p1.x; dy3 = p3.y - p1.y; dz3 = p3.z - p1.z;// a3 = p3 - p1
 
-    dx1 = p.x - p1.x; dy1 = p.y - p1.y; dz1 = p.z - p1.z;   //a1=p -p1
-    dx2 = p2.x - p1.x; dy2 = p2.y - p1.y; dz2 = p2.z - p1.z;//a2=p2-p1
-    dx3 = p3.x - p1.x; dy3 = p3.y - p1.y; dz3 = p3.z - p1.z;//a3=p3-p1
-
-    // area of the parralelogram since h=1 and V=ah=nf.(a2xa3)
+    // area of the parralelogram since h=1 and V = ah = nf.(a2xa3)
     d = (nfx * (dy2 * dz3 - dz2 * dy3) - 
-	 nfy * (dx2 * dz3 - dz2 * dx3) + 
-	 nfz * (dx2 * dy3 - dy2 * dx3));
-    if (fabs(d) > 1.e-10) {
-      // the distance of the point from the triangle plane
-      // d = Vol/area = a1.(a2xa3)/area
-      d = -(dx1 * (dy2 * dz3 - dz2 * dy3) - 
-	    dy1 * (dx2 * dz3 - dz2 * dx3) + 
-	    dz1 * (dx2 * dy3 - dy2 * dx3)) / d;
-      
+	     nfy * (dx2 * dz3 - dz2 * dx3) + 
+	     nfz * (dx2 * dy3 - dy2 * dx3));
+	 
+    if (fabs(d) > 1.e-15) {
+      // the distance of the point from the triangle plane d = Vol/area = a1.(a2xa3)/area
+		d = -(dx1 * (dy2 * dz3 - dz2 * dy3) - 
+		dy1 * (dx2 * dz3 - dz2 * dx3) + 
+		dz1 * (dx2 * dy3 - dy2 * dx3)) / d;
 
-      if (d>0) {
-	pint.x = p.x + d * nfx;
-	pint.y = p.y + d * nfy;
-	pint.z = p.z + d * nfz;
+		if (d>0) {
+			pint.x = p.x + d * nfx;
+			pint.y = p.y + d * nfy;
+			pint.z = p.z + d * nfz;
 
-	rx1 = p2.x - p1.x; ry1 = p2.y - p1.y; rz1 = p2.z - p1.z;
-	rx2 = p3.x - p1.x; ry2 = p3.y - p1.y; rz2 = p3.z - p1.z;
-      
-	nfxt = ry1 * rz2 - rz1 * ry2;
-	nfyt = -rx1 * rz2 + rz1 * rx2;
-	nfzt = rx1 * ry2 - ry1 * rx2;
+			rx1 = p2.x - p1.x; ry1 = p2.y - p1.y; rz1 = p2.z - p1.z;
+			rx2 = p3.x - p1.x; ry2 = p3.y - p1.y; rz2 = p3.z - p1.z;
 
-	flag = ISPointInTriangle(pint, p1, p2, p3, nfxt, nfyt, nfzt);
-	if (flag >= 0) {
-	  cell = i;
+			nfxt = ry1 * rz2 - rz1 * ry2;
+			nfyt = -rx1 * rz2 + rz1 * rx2;
+			nfzt = rx1 * ry2 - ry1 * rx2;
 
-	  /*	  if (flagprint==1) {
-	    PetscPrintf(PETSC_COMM_WORLD, "%e %e %e %e \n", pint.x, pint.y, pint.z, d);
-	    PetscPrintf(PETSC_COMM_WORLD, "%e %e %e\n", nfx, nfy, nfz);
-	    PetscPrintf(PETSC_COMM_WORLD, "%e %e %e\n", p2.x, p2.y, p2.z);
-	    PetscPrintf(PETSC_COMM_WORLD, "%e %e %e\n", p3.x, p3.y, p3.z);
-	    }*/
+			flag = ISPointInTriangle(pint, p1, p2, p3, nfxt, nfyt, nfzt);
+				if (flag >= 0) {
+						cell = i;
+					  // Calculate the interpolatin Coefficients
+					 if ((int)(nvertpc[triangles[0][i]] +0.5) != 3 &&
+						  (int)(nvertpc[triangles[1][i]] +0.5) != 3 &&
+						  (int)(nvertpc[triangles[2][i]] +0.5) != 3) {
+							*Need3rdPoint = 0;
+							if (fabs(nfxt) >= fabs(nfyt) && fabs(nfxt)>= fabs(nfzt)) {
+							  pjp.x = pint.y; pjp.y = pint.z;
+							  pj1.x = p1.y;   pj1.y = p1.z;
+							  pj2.x = p2.y;   pj2.y = p2.z;
+							  pj3.x = p3.y;   pj3.y = p3.z;
+							  triangle_intp_fsi(pjp, pj1, pj2, pj3, ibminfo, number);
+							  triangle_intp2_fsi(pjp, pj1, pj2, pj3, ibminfo, number); // so far, what happens inside this function is not used.
+							}
+							else if (fabs(nfyt) >= fabs(nfxt) && fabs(nfyt)>= fabs(nfzt)) {
+							  pjp.x = pint.x; pjp.y = pint.z;
+							  pj1.x = p1.x;   pj1.y = p1.z;
+							  pj2.x = p2.x;   pj2.y = p2.z;
+							  pj3.x = p3.x;   pj3.y = p3.z;
+							  triangle_intp_fsi(pjp, pj1, pj2, pj3, ibminfo, number);
+							  triangle_intp2_fsi(pjp, pj1, pj2, pj3, ibminfo, number);
+							}
+							else if (fabs(nfzt) >= fabs(nfyt) && fabs(nfzt)>= fabs(nfxt)) {
+							  pjp.x = pint.y; pjp.y = pint.x;
+							  pj1.x = p1.y;   pj1.y = p1.x;
+							  pj2.x = p2.y;   pj2.y = p2.x;
+							  pj3.x = p3.y;   pj3.y = p3.x;
+							  triangle_intp_fsi(pjp, pj1, pj2, pj3, ibminfo,number);
+							  triangle_intp2_fsi(pjp, pj1, pj2, pj3, ibminfo, number);
+							}
+					  } else  if ((int)(nvertpc[triangles[0][i]] +0.5) == 3 &&
+							  (int)(nvertpc[triangles[1][i]] +0.5) != 3 &&
+							  (int)(nvertpc[triangles[2][i]] +0.5) != 3) {
+							*Need3rdPoint = 1;
+							if (fabs(nfxt) >= fabs(nfyt) && fabs(nfxt)>= fabs(nfzt)) {
+							  pjp.x = pint.y; pjp.y = pint.z;
+							  pj1.x = p1.y;   pj1.y = p1.z;
+							  pj2.x = p2.y;   pj2.y = p2.z;
+							  pj3.x = p3.y;   pj3.y = p3.z;
+							  linear_intp(pjp, pj2, pj3, ibminfo, number,1);
+							  triangle_intp2_fsi(pjp, pj1, pj2, pj3, ibminfo, number);
+							}
+							else if (fabs(nfyt) >= fabs(nfxt) && fabs(nfyt)>= fabs(nfzt)) {
+							  pjp.x = pint.x; pjp.y = pint.z;
+							  pj1.x = p1.x;   pj1.y = p1.z;
+							  pj2.x = p2.x;   pj2.y = p2.z;
+							  pj3.x = p3.x;   pj3.y = p3.z;
+							  linear_intp(pjp, pj2, pj3, ibminfo, number,1);
+							  triangle_intp2_fsi(pjp, pj1, pj2, pj3, ibminfo, number);
+							}
+							else if (fabs(nfzt) >= fabs(nfyt) && fabs(nfzt)>= fabs(nfxt)) {
+							  pjp.x = pint.y; pjp.y = pint.x;
+							  pj1.x = p1.y;   pj1.y = p1.x;
+							  pj2.x = p2.y;   pj2.y = p2.x;
+							  pj3.x = p3.y;   pj3.y = p3.x;
+							  linear_intp(pjp, pj2, pj3, ibminfo,number,1);
+							  triangle_intp2_fsi(pjp, pj1, pj2, pj3, ibminfo, number);
+							}
+					  } else  if ((int)(nvertpc[triangles[0][i]] +0.5) != 3 &&
+							  (int)(nvertpc[triangles[1][i]] +0.5) == 3 &&
+							  (int)(nvertpc[triangles[2][i]] +0.5) != 3) {
+							*Need3rdPoint = 1;
+							if (fabs(nfxt) >= fabs(nfyt) && fabs(nfxt)>= fabs(nfzt)) {
+							  pjp.x = pint.y; pjp.y = pint.z;
+							  pj1.x = p1.y;   pj1.y = p1.z;
+							  pj2.x = p2.y;   pj2.y = p2.z;
+							  pj3.x = p3.y;   pj3.y = p3.z;
+							  linear_intp(pjp, pj1, pj3, ibminfo, number,2);
+							  triangle_intp2_fsi(pjp, pj1, pj2, pj3, ibminfo, number);
+							}
+							else if (fabs(nfyt) >= fabs(nfxt) && fabs(nfyt)>= fabs(nfzt)) {
+							  pjp.x = pint.x; pjp.y = pint.z;
+							  pj1.x = p1.x;   pj1.y = p1.z;
+							  pj2.x = p2.x;   pj2.y = p2.z;
+							  pj3.x = p3.x;   pj3.y = p3.z;
+							  linear_intp(pjp, pj1, pj3, ibminfo, number,2);
+							  triangle_intp2_fsi(pjp, pj1, pj2, pj3, ibminfo, number);
+							}
+							else if (fabs(nfzt) >= fabs(nfyt) && fabs(nfzt)>= fabs(nfxt)) {
+							  pjp.x = pint.y; pjp.y = pint.x;
+							  pj1.x = p1.y;   pj1.y = p1.x;
+							  pj2.x = p2.y;   pj2.y = p2.x;
+							  pj3.x = p3.y;   pj3.y = p3.x;
+							  linear_intp(pjp, pj1, pj3, ibminfo,number,2);
+							  triangle_intp2_fsi(pjp, pj1, pj2, pj3, ibminfo, number);
+							}
 
-	  // Calculate the interpolatin Coefficients
-	  if ((int)(nvertpc[triangles[0][i]] +0.5) != 3 &&
-	      (int)(nvertpc[triangles[1][i]] +0.5) != 3 &&
-	      (int)(nvertpc[triangles[2][i]] +0.5) != 3) {
-	    *Need3rdPoint = 0;
-	    if (fabs(nfxt) >= fabs(nfyt) && fabs(nfxt)>= fabs(nfzt)) {
-	      pjp.x = pint.y; pjp.y = pint.z;
-	      pj1.x = p1.y;   pj1.y = p1.z;
-	      pj2.x = p2.y;   pj2.y = p2.z;
-	      pj3.x = p3.y;   pj3.y = p3.z;
-	      triangle_intp_fsi(pjp, pj1, pj2, pj3, ibminfo, number);
-	      triangle_intp2_fsi(pjp, pj1, pj2, pj3, ibminfo, number);
-	    }
-	    else if (fabs(nfyt) >= fabs(nfxt) && fabs(nfyt)>= fabs(nfzt)) {
-	      pjp.x = pint.x; pjp.y = pint.z;
-	      pj1.x = p1.x;   pj1.y = p1.z;
-	      pj2.x = p2.x;   pj2.y = p2.z;
-	      pj3.x = p3.x;   pj3.y = p3.z;
-	      triangle_intp_fsi(pjp, pj1, pj2, pj3, ibminfo, number);
-	      triangle_intp2_fsi(pjp, pj1, pj2, pj3, ibminfo, number);
-	    }
-	    else if (fabs(nfzt) >= fabs(nfyt) && fabs(nfzt)>= fabs(nfxt)) {
-	      pjp.x = pint.y; pjp.y = pint.x;
-	      pj1.x = p1.y;   pj1.y = p1.x;
-	      pj2.x = p2.y;   pj2.y = p2.x;
-	      pj3.x = p3.y;   pj3.y = p3.x;
-	      triangle_intp_fsi(pjp, pj1, pj2, pj3, ibminfo,number);
-	      triangle_intp2_fsi(pjp, pj1, pj2, pj3, ibminfo, number);
-	    }
-	  } else  if ((int)(nvertpc[triangles[0][i]] +0.5) == 3 &&
-		      (int)(nvertpc[triangles[1][i]] +0.5) != 3 &&
-		      (int)(nvertpc[triangles[2][i]] +0.5) != 3) {
-	    *Need3rdPoint = 1;
-	    if (fabs(nfxt) >= fabs(nfyt) && fabs(nfxt)>= fabs(nfzt)) {
-	      pjp.x = pint.y; pjp.y = pint.z;
-	      pj1.x = p1.y;   pj1.y = p1.z;
-	      pj2.x = p2.y;   pj2.y = p2.z;
-	      pj3.x = p3.y;   pj3.y = p3.z;
-	      linear_intp(pjp, pj2, pj3, ibminfo, number,1);
-	      triangle_intp2_fsi(pjp, pj1, pj2, pj3, ibminfo, number);
-	    }
-	    else if (fabs(nfyt) >= fabs(nfxt) && fabs(nfyt)>= fabs(nfzt)) {
-	      pjp.x = pint.x; pjp.y = pint.z;
-	      pj1.x = p1.x;   pj1.y = p1.z;
-	      pj2.x = p2.x;   pj2.y = p2.z;
-	      pj3.x = p3.x;   pj3.y = p3.z;
-	      linear_intp(pjp, pj2, pj3, ibminfo, number,1);
-	      triangle_intp2_fsi(pjp, pj1, pj2, pj3, ibminfo, number);
-	    }
-	    else if (fabs(nfzt) >= fabs(nfyt) && fabs(nfzt)>= fabs(nfxt)) {
-	      pjp.x = pint.y; pjp.y = pint.x;
-	      pj1.x = p1.y;   pj1.y = p1.x;
-	      pj2.x = p2.y;   pj2.y = p2.x;
-	      pj3.x = p3.y;   pj3.y = p3.x;
-	      linear_intp(pjp, pj2, pj3, ibminfo,number,1);
-	      triangle_intp2_fsi(pjp, pj1, pj2, pj3, ibminfo, number);
-	    }
-	  } else  if ((int)(nvertpc[triangles[0][i]] +0.5) != 3 &&
-		      (int)(nvertpc[triangles[1][i]] +0.5) == 3 &&
-		      (int)(nvertpc[triangles[2][i]] +0.5) != 3) {
-	    *Need3rdPoint = 1;
-	    if (fabs(nfxt) >= fabs(nfyt) && fabs(nfxt)>= fabs(nfzt)) {
-	      pjp.x = pint.y; pjp.y = pint.z;
-	      pj1.x = p1.y;   pj1.y = p1.z;
-	      pj2.x = p2.y;   pj2.y = p2.z;
-	      pj3.x = p3.y;   pj3.y = p3.z;
-	      linear_intp(pjp, pj1, pj3, ibminfo, number,2);
-	      triangle_intp2_fsi(pjp, pj1, pj2, pj3, ibminfo, number);
-	    }
-	    else if (fabs(nfyt) >= fabs(nfxt) && fabs(nfyt)>= fabs(nfzt)) {
-	      pjp.x = pint.x; pjp.y = pint.z;
-	      pj1.x = p1.x;   pj1.y = p1.z;
-	      pj2.x = p2.x;   pj2.y = p2.z;
-	      pj3.x = p3.x;   pj3.y = p3.z;
-	      linear_intp(pjp, pj1, pj3, ibminfo, number,2);
-	      triangle_intp2_fsi(pjp, pj1, pj2, pj3, ibminfo, number);
-	    }
-	    else if (fabs(nfzt) >= fabs(nfyt) && fabs(nfzt)>= fabs(nfxt)) {
-	      pjp.x = pint.y; pjp.y = pint.x;
-	      pj1.x = p1.y;   pj1.y = p1.x;
-	      pj2.x = p2.y;   pj2.y = p2.x;
-	      pj3.x = p3.y;   pj3.y = p3.x;
-	      linear_intp(pjp, pj1, pj3, ibminfo,number,2);
-	      triangle_intp2_fsi(pjp, pj1, pj2, pj3, ibminfo, number);
-	    }
-
-	  } else  if ((int)(nvertpc[triangles[0][i]] +0.5) != 3 &&
-		      (int)(nvertpc[triangles[1][i]] +0.5) != 3 &&
-		      (int)(nvertpc[triangles[2][i]] +0.5) == 3) {
-	    *Need3rdPoint = 1;
-	    if (fabs(nfxt) >= fabs(nfyt) && fabs(nfxt)>= fabs(nfzt)) {
-	      pjp.x = pint.y; pjp.y = pint.z;
-	      pj1.x = p1.y;   pj1.y = p1.z;
-	      pj2.x = p2.y;   pj2.y = p2.z;
-	      pj3.x = p3.y;   pj3.y = p3.z;
-	      linear_intp(pjp, pj1, pj2, ibminfo, number,3);
-	      triangle_intp2_fsi(pjp, pj1, pj2, pj3, ibminfo, number);
-	    }
-	    else if (fabs(nfyt) >= fabs(nfxt) && fabs(nfyt)>= fabs(nfzt)) {
-	      pjp.x = pint.x; pjp.y = pint.z;
-	      pj1.x = p1.x;   pj1.y = p1.z;
-	      pj2.x = p2.x;   pj2.y = p2.z;
-	      pj3.x = p3.x;   pj3.y = p3.z;
-	      linear_intp(pjp, pj1, pj2, ibminfo, number,3);
-	      triangle_intp2_fsi(pjp, pj1, pj2, pj3, ibminfo, number);
-	    }
-	    else if (fabs(nfzt) >= fabs(nfyt) && fabs(nfzt)>= fabs(nfxt)) {
-	      pjp.x = pint.y; pjp.y = pint.x;
-	      pj1.x = p1.y;   pj1.y = p1.x;
-	      pj2.x = p2.y;   pj2.y = p2.x;
-	      pj3.x = p3.y;   pj3.y = p3.x;
-	      linear_intp(pjp, pj1, pj2, ibminfo,number,3);
-	      triangle_intp2_fsi(pjp, pj1, pj2, pj3, ibminfo, number);
-	    }
-	  } else  if ((int)(nvertpc[triangles[0][i]] +0.5) != 3 &&
-		      (int)(nvertpc[triangles[1][i]] +0.5) == 3 &&
-		      (int)(nvertpc[triangles[2][i]] +0.5) == 3) {
-	    *Need3rdPoint = 1;
-	    ibminfo[number].cr1 = 1.;
-	    ibminfo[number].cr2 = 0.;
-	    ibminfo[number].cr3 = 0.;
-	    if (fabs(nfxt) >= fabs(nfyt) && fabs(nfxt)>= fabs(nfzt)) {
-	      pjp.x = pint.y; pjp.y = pint.z;
-	      pj1.x = p1.y;   pj1.y = p1.z;
-	      pj2.x = p2.y;   pj2.y = p2.z;
-	      pj3.x = p3.y;   pj3.y = p3.z;
-	      triangle_intp2_fsi(pjp, pj1, pj2, pj3, ibminfo, number);
-	    }
-	    else if (fabs(nfyt) >= fabs(nfxt) && fabs(nfyt)>= fabs(nfzt)) {
-	      pjp.x = pint.x; pjp.y = pint.z;
-	      pj1.x = p1.x;   pj1.y = p1.z;
-	      pj2.x = p2.x;   pj2.y = p2.z;
-	      pj3.x = p3.x;   pj3.y = p3.z;
-	      triangle_intp2_fsi(pjp, pj1, pj2, pj3, ibminfo, number);
-	    }
-	    else if (fabs(nfzt) >= fabs(nfyt) && fabs(nfzt)>= fabs(nfxt)) {
-	      pjp.x = pint.y; pjp.y = pint.x;
-	      pj1.x = p1.y;   pj1.y = p1.x;
-	      pj2.x = p2.y;   pj2.y = p2.x;
-	      pj3.x = p3.y;   pj3.y = p3.x;
-	      triangle_intp2_fsi(pjp, pj1, pj2, pj3, ibminfo, number);
-	    }
-	  } else  if ((int)(nvertpc[triangles[0][i]] +0.5) == 3 &&
-		      (int)(nvertpc[triangles[1][i]] +0.5) != 3 &&
-		      (int)(nvertpc[triangles[2][i]] +0.5) == 3) {
-	    *Need3rdPoint = 1;
-	    ibminfo[number].cr1 = 0.;
-	    ibminfo[number].cr2 = 1.;
-	    ibminfo[number].cr3 = 0.;
-	    if (fabs(nfxt) >= fabs(nfyt) && fabs(nfxt)>= fabs(nfzt)) {
-	      pjp.x = pint.y; pjp.y = pint.z;
-	      pj1.x = p1.y;   pj1.y = p1.z;
-	      pj2.x = p2.y;   pj2.y = p2.z;
-	      pj3.x = p3.y;   pj3.y = p3.z;
-	      triangle_intp2_fsi(pjp, pj1, pj2, pj3, ibminfo, number);
-	    }
-	    else if (fabs(nfyt) >= fabs(nfxt) && fabs(nfyt)>= fabs(nfzt)) {
-	      pjp.x = pint.x; pjp.y = pint.z;
-	      pj1.x = p1.x;   pj1.y = p1.z;
-	      pj2.x = p2.x;   pj2.y = p2.z;
-	      pj3.x = p3.x;   pj3.y = p3.z;
-	      triangle_intp2_fsi(pjp, pj1, pj2, pj3, ibminfo, number);
-	    }
-	    else if (fabs(nfzt) >= fabs(nfyt) && fabs(nfzt)>= fabs(nfxt)) {
-	      pjp.x = pint.y; pjp.y = pint.x;
-	      pj1.x = p1.y;   pj1.y = p1.x;
-	      pj2.x = p2.y;   pj2.y = p2.x;
-	      pj3.x = p3.y;   pj3.y = p3.x;
-	      triangle_intp2_fsi(pjp, pj1, pj2, pj3, ibminfo, number);
-	    }
-	  } else  if ((int)(nvertpc[triangles[0][i]] +0.5) == 3 &&
-		      (int)(nvertpc[triangles[1][i]] +0.5) == 3 &&
-		      (int)(nvertpc[triangles[2][i]] +0.5) != 3) {
-	    *Need3rdPoint = 1;
-	    ibminfo[number].cr1 = 0.;
-	    ibminfo[number].cr2 = 0.;
-	    ibminfo[number].cr3 = 1.;
-	    if (fabs(nfxt) >= fabs(nfyt) && fabs(nfxt)>= fabs(nfzt)) {
-	      pjp.x = pint.y; pjp.y = pint.z;
-	      pj1.x = p1.y;   pj1.y = p1.z;
-	      pj2.x = p2.y;   pj2.y = p2.z;
-	      pj3.x = p3.y;   pj3.y = p3.z;
-	      triangle_intp2_fsi(pjp, pj1, pj2, pj3, ibminfo, number);
-	    }
-	    else if (fabs(nfyt) >= fabs(nfxt) && fabs(nfyt)>= fabs(nfzt)) {
-	      pjp.x = pint.x; pjp.y = pint.z;
-	      pj1.x = p1.x;   pj1.y = p1.z;
-	      pj2.x = p2.x;   pj2.y = p2.z;
-	      pj3.x = p3.x;   pj3.y = p3.z;
-	      triangle_intp2_fsi(pjp, pj1, pj2, pj3, ibminfo, number);
-	    }
-	    else if (fabs(nfzt) >= fabs(nfyt) && fabs(nfzt)>= fabs(nfxt)) {
-	      pjp.x = pint.y; pjp.y = pint.x;
-	      pj1.x = p1.y;   pj1.y = p1.x;
-	      pj2.x = p2.y;   pj2.y = p2.x;
-	      pj3.x = p3.y;   pj3.y = p3.x;
-	      triangle_intp2_fsi(pjp, pj1, pj2, pj3, ibminfo, number);
-	    }
-	  } else {
-	    PetscPrintf(PETSC_COMM_WORLD, "%Something Wrong! All host nodes are blanked!!!!!\n");
-	    return(1);
-	  }
-
-	  *intp = pint;
-
-	  ibminfo[number].d_i = sqrt((pint.x-p.x)*(pint.x - p.x) + (pint.y-p.y) *
-				     (pint.y-p.y) + (pint.z - p.z)* (pint.z - p.z));
-	  ibminfo[number].imode = cell;
-
-	  if (ibminfo[number].cr1<1e-6 &&
-	      ibminfo[number].cr2<1e-6 &&
-	      ibminfo[number].cr3<1e-6)
-	    PetscPrintf(PETSC_COMM_SELF, "0 fsi Coeff!!!! %d  %d %le %le %le %le \n", number, ibminfo[number].imode,ibminfo[number].d_i, nvertpc[triangles[0][i]],nvertpc[triangles[1][i]],nvertpc[triangles[2][i]]);
-
-	  return (0);
+					  } else  if ((int)(nvertpc[triangles[0][i]] +0.5) != 3 &&
+							  (int)(nvertpc[triangles[1][i]] +0.5) != 3 &&
+							  (int)(nvertpc[triangles[2][i]] +0.5) == 3) {
+							*Need3rdPoint = 1;
+							if (fabs(nfxt) >= fabs(nfyt) && fabs(nfxt)>= fabs(nfzt)) {
+							  pjp.x = pint.y; pjp.y = pint.z;
+							  pj1.x = p1.y;   pj1.y = p1.z;
+							  pj2.x = p2.y;   pj2.y = p2.z;
+							  pj3.x = p3.y;   pj3.y = p3.z;
+							  linear_intp(pjp, pj1, pj2, ibminfo, number,3);
+							  triangle_intp2_fsi(pjp, pj1, pj2, pj3, ibminfo, number);
+							}
+							else if (fabs(nfyt) >= fabs(nfxt) && fabs(nfyt)>= fabs(nfzt)) {
+							  pjp.x = pint.x; pjp.y = pint.z;
+							  pj1.x = p1.x;   pj1.y = p1.z;
+							  pj2.x = p2.x;   pj2.y = p2.z;
+							  pj3.x = p3.x;   pj3.y = p3.z;
+							  linear_intp(pjp, pj1, pj2, ibminfo, number,3);
+							  triangle_intp2_fsi(pjp, pj1, pj2, pj3, ibminfo, number);
+							}
+							else if (fabs(nfzt) >= fabs(nfyt) && fabs(nfzt)>= fabs(nfxt)) {
+							  pjp.x = pint.y; pjp.y = pint.x;
+							  pj1.x = p1.y;   pj1.y = p1.x;
+							  pj2.x = p2.y;   pj2.y = p2.x;
+							  pj3.x = p3.y;   pj3.y = p3.x;
+							  linear_intp(pjp, pj1, pj2, ibminfo,number,3);
+							  triangle_intp2_fsi(pjp, pj1, pj2, pj3, ibminfo, number);
+							}
+					  } else  if ((int)(nvertpc[triangles[0][i]] +0.5) != 3 &&
+							  (int)(nvertpc[triangles[1][i]] +0.5) == 3 &&
+							  (int)(nvertpc[triangles[2][i]] +0.5) == 3) {
+							*Need3rdPoint = 1;
+							ibminfo[number].cr1 = 1.;
+							ibminfo[number].cr2 = 0.;
+							ibminfo[number].cr3 = 0.;
+							if (fabs(nfxt) >= fabs(nfyt) && fabs(nfxt)>= fabs(nfzt)) {
+							  pjp.x = pint.y; pjp.y = pint.z;
+							  pj1.x = p1.y;   pj1.y = p1.z;
+							  pj2.x = p2.y;   pj2.y = p2.z;
+							  pj3.x = p3.y;   pj3.y = p3.z;
+							  triangle_intp2_fsi(pjp, pj1, pj2, pj3, ibminfo, number);
+							}
+							else if (fabs(nfyt) >= fabs(nfxt) && fabs(nfyt)>= fabs(nfzt)) {
+							  pjp.x = pint.x; pjp.y = pint.z;
+							  pj1.x = p1.x;   pj1.y = p1.z;
+							  pj2.x = p2.x;   pj2.y = p2.z;
+							  pj3.x = p3.x;   pj3.y = p3.z;
+							  triangle_intp2_fsi(pjp, pj1, pj2, pj3, ibminfo, number);
+							}
+							else if (fabs(nfzt) >= fabs(nfyt) && fabs(nfzt)>= fabs(nfxt)) {
+							  pjp.x = pint.y; pjp.y = pint.x;
+							  pj1.x = p1.y;   pj1.y = p1.x;
+							  pj2.x = p2.y;   pj2.y = p2.x;
+							  pj3.x = p3.y;   pj3.y = p3.x;
+							  triangle_intp2_fsi(pjp, pj1, pj2, pj3, ibminfo, number);
+							}
+					  } else  if ((int)(nvertpc[triangles[0][i]] +0.5) == 3 &&
+							  (int)(nvertpc[triangles[1][i]] +0.5) != 3 &&
+							  (int)(nvertpc[triangles[2][i]] +0.5) == 3) {
+							*Need3rdPoint = 1;
+							ibminfo[number].cr1 = 0.;
+							ibminfo[number].cr2 = 1.;
+							ibminfo[number].cr3 = 0.;
+							if (fabs(nfxt) >= fabs(nfyt) && fabs(nfxt)>= fabs(nfzt)) {
+							  pjp.x = pint.y; pjp.y = pint.z;
+							  pj1.x = p1.y;   pj1.y = p1.z;
+							  pj2.x = p2.y;   pj2.y = p2.z;
+							  pj3.x = p3.y;   pj3.y = p3.z;
+							  triangle_intp2_fsi(pjp, pj1, pj2, pj3, ibminfo, number);
+							}
+							else if (fabs(nfyt) >= fabs(nfxt) && fabs(nfyt)>= fabs(nfzt)) {
+							  pjp.x = pint.x; pjp.y = pint.z;
+							  pj1.x = p1.x;   pj1.y = p1.z;
+							  pj2.x = p2.x;   pj2.y = p2.z;
+							  pj3.x = p3.x;   pj3.y = p3.z;
+							  triangle_intp2_fsi(pjp, pj1, pj2, pj3, ibminfo, number);
+							}
+							else if (fabs(nfzt) >= fabs(nfyt) && fabs(nfzt)>= fabs(nfxt)) {
+							  pjp.x = pint.y; pjp.y = pint.x;
+							  pj1.x = p1.y;   pj1.y = p1.x;
+							  pj2.x = p2.y;   pj2.y = p2.x;
+							  pj3.x = p3.y;   pj3.y = p3.x;
+							  triangle_intp2_fsi(pjp, pj1, pj2, pj3, ibminfo, number);
+							}
+					  } else  if ((int)(nvertpc[triangles[0][i]] +0.5) == 3 &&
+							  (int)(nvertpc[triangles[1][i]] +0.5) == 3 &&
+							  (int)(nvertpc[triangles[2][i]] +0.5) != 3) {
+							*Need3rdPoint = 1;
+							ibminfo[number].cr1 = 0.;
+							ibminfo[number].cr2 = 0.;
+							ibminfo[number].cr3 = 1.;
+							if (fabs(nfxt) >= fabs(nfyt) && fabs(nfxt)>= fabs(nfzt)) {
+							  pjp.x = pint.y; pjp.y = pint.z;
+							  pj1.x = p1.y;   pj1.y = p1.z;
+							  pj2.x = p2.y;   pj2.y = p2.z;
+							  pj3.x = p3.y;   pj3.y = p3.z;
+							  triangle_intp2_fsi(pjp, pj1, pj2, pj3, ibminfo, number);
+							}
+							else if (fabs(nfyt) >= fabs(nfxt) && fabs(nfyt)>= fabs(nfzt)) {
+							  pjp.x = pint.x; pjp.y = pint.z;
+							  pj1.x = p1.x;   pj1.y = p1.z;
+							  pj2.x = p2.x;   pj2.y = p2.z;
+							  pj3.x = p3.x;   pj3.y = p3.z;
+							  triangle_intp2_fsi(pjp, pj1, pj2, pj3, ibminfo, number);
+							}
+							else if (fabs(nfzt) >= fabs(nfyt) && fabs(nfzt)>= fabs(nfxt)) {
+							  pjp.x = pint.y; pjp.y = pint.x;
+							  pj1.x = p1.y;   pj1.y = p1.x;
+							  pj2.x = p2.y;   pj2.y = p2.x;
+							  pj3.x = p3.y;   pj3.y = p3.x;
+							  triangle_intp2_fsi(pjp, pj1, pj2, pj3, ibminfo, number);
+							}
+					  } else {
+						PetscPrintf(PETSC_COMM_WORLD, "%Something Wrong! All host nodes are blanked!!!!!\n");
+						return(1);
+					  }
+				  
+				  
+					  ibminfo[number].d_i = sqrt((pint.x-p.x)*(pint.x - p.x) + (pint.y-p.y) * (pint.y-p.y) + (pint.z - p.z)* (pint.z - p.z));
+					  ibminfo[number].imode = cell;
+				  
+					  if(*Need3rdPoint){
+							dxT = pc[6].x - pc[1].x;
+							dyT = pc[6].y - pc[1].y;
+							dzT = pc[6].z - pc[1].z;
+							//d = d + 0.5*sqrt(dxT*dxT+dyT*dyT+dzT*dzT);
+							d = 1.1*d;
+							pint.x = p.x + d * nfx;
+							pint.y = p.y + d * nfy;
+							pint.z = p.z + d * nfz;						
+					  }
+				  
+					  *intp = pint;				  					  
+					  if (ibminfo[number].cr1<1e-6 && ibminfo[number].cr2<1e-6 && ibminfo[number].cr3<1e-6) PetscPrintf(PETSC_COMM_SELF, "0 fsi Coeff!!!! %d  %d %le %le %le %le \n", number, ibminfo[number].imode,ibminfo[number].d_i, nvertpc[triangles[0][i]],nvertpc[triangles[1][i]],nvertpc[triangles[2][i]]);					
+					  if (number==672 || number==759)	PetscPrintf(PETSC_COMM_SELF, "ASR C XXX!!!! elmt=%d; imode=%d; di=%le; d=%le; nvert=%e, %e, %e; \n", number, ibminfo[number].imode, ibminfo[number].d_i, d, nvertpc[triangles[0][i]],nvertpc[triangles[1][i]],nvertpc[triangles[2][i]]);
+					  return (0);
+				}
+		} else{
+				//PetscPrintf(PETSC_COMM_SELF, "Error: d is negative. elmt = %d;  imode=%d; di=%le; nvertpc = (%le, %le, %le); \n", number, ibminfo[number].imode,d, nvertpc[triangles[0][i]],nvertpc[triangles[1][i]],nvertpc[triangles[2][i]]);
+		}
+    } else {
+		//PetscPrintf(PETSC_COMM_SELF, "Error: d(area) is very small. elmt = %d;  imode=%d; di=%le; nvertpc = (%le, %le, %le); \n", number, ibminfo[number].imode, d, nvertpc[triangles[0][i]],nvertpc[triangles[1][i]],nvertpc[triangles[2][i]]);
 	}
-      }
-    }
-  }
+	
+  } // ffor (i=0; i<12; i++) each triangle
   return(0);
 }
 
@@ -916,12 +1598,27 @@ PetscErrorCode Find_fsi_interp_Coeff(IBMInfo *ibminfo, UserCtx *user, IBMNodes *
   PetscInt	mx = info.mx, my = info.my, mz = info.mz;
   PetscInt	i, j, k;
   PetscInt	i2, j2, k2;
+  PetscInt      lxs, lxe, lys, lye, lzs, lze;
+
+  PetscInt foundFlag;
 
   PetscInt      n_elmt = ibm->n_elmt;
   PetscInt      elmt, ip[8],jp[8],kp[8];
-  Cmpnts        ***coor,pc[8],p, intp;
+  Cmpnts        ***coor,pc[8],p, intp, intp2x;
   PetscReal	***nvert,nvertpc[8];
   PetscReal     nfx,nfy,nfz;
+
+
+	lxs = xs; lxe = xe;
+	lys = ys; lye = ye;
+	lzs = zs; lze = ze;
+
+	if (xs==0) lxs = xs+1; 
+	if (ys==0) lys = ys+1; 
+	if (zs==0) lzs = zs+1; 
+	if (xe==mx) lxe = xe-2; 
+	if (ye==my) lye = ye-2; 
+	if (ze==mz) lze = ze-2;
 
   PetscInt	rank;
   MPI_Comm_rank(PETSC_COMM_WORLD, &rank);
@@ -930,218 +1627,222 @@ PetscErrorCode Find_fsi_interp_Coeff(IBMInfo *ibminfo, UserCtx *user, IBMNodes *
   DAVecGetArray(da, user->lNvert, &nvert);
 
   for (elmt=0; elmt<n_elmt; elmt++) {
-  if (elmtinfo[elmt].n_P>0 && elmtinfo[elmt].FoundAroundcell>0) {
-    //p=ibm->cent[elmt];
-    p.x=ibm->cent_x[elmt]; 
-    p.y=ibm->cent_y[elmt]; 
-    p.z=ibm->cent_z[elmt]; 
+	  
+	  if (elmtinfo[elmt].n_P>0 && elmtinfo[elmt].FoundAroundcell==1) {
+		//p=ibm->cent[elmt];
+		p.x=ibm->cent_x[elmt]; 
+		p.y=ibm->cent_y[elmt]; 
+		p.z=ibm->cent_z[elmt]; 
 
-    nfx=ibm->nf_x[elmt];
-    nfy=ibm->nf_y[elmt];
-    nfz=ibm->nf_z[elmt];
+		nfx=ibm->nf_x[elmt];
+		nfy=ibm->nf_y[elmt];
+		nfz=ibm->nf_z[elmt];
 
-    i=elmtinfo[elmt].icell;
-    j=elmtinfo[elmt].jcell;
-    k=elmtinfo[elmt].kcell;
+		i = elmtinfo[elmt].icell;
+		j = elmtinfo[elmt].jcell;
+		k = elmtinfo[elmt].kcell;
 
-    // normal correction for near domain bndry pts
-/*     if (i==1) { */
-/*       nfx=0.;//-0.0001*PetscSign(coor[k][j][i].x-coor[k][j][i+1].x); */
-/*     } */
-    
-/*     if (i==mx-3) { */
-/*       nfx=0.;//-0.0001*PetscSign(coor[k][j][i].x-coor[k][j][i-1].x); */
-/*     } */
-    
-/*     if (j==1) { */
-/*       nfy=-0.0001*PetscSign(coor[k][j][i].y-coor[k][j+1][i].y); */
-/*     } */
-    
-/*     if (j==my-2) { */
-/*       nfy=-0.0001*PetscSign(coor[k][j][i].y-coor[k][j-1][i].y); */
-/*     } */
+	//if (i>=xs && i<xe && j>=ys && j<ye && k>=zs && k<ze) {
+		if (i>=lxs && i<lxe && j>=lys && j<lye && k>=lzs && k<lze) {
 
-/*     if (k==1) { */
-/*       nfz=-0.0001*PetscSign(coor[k][j][i].z-coor[k+1][j][i].z); */
-/*     } */
+		  pc[0] = coor[k  ][j  ][i  ];
+		  pc[1] = coor[k  ][j  ][i+1];
+		  pc[2] = coor[k  ][j+1][i+1];
+		  pc[3] = coor[k  ][j+1][i  ];
+		  
+		  pc[4] = coor[k+1][j  ][i  ];
+		  pc[5] = coor[k+1][j  ][i+1];
+		  pc[6] = coor[k+1][j+1][i+1];
+		  pc[7] = coor[k+1][j+1][i  ];
 
-/*     if (k==mz-2) { */
-/*       nfz=-0.0001*PetscSign(coor[k][j][i].z-coor[k-1][j][i].z); */
-/*     } */
+		  nvertpc[0] = nvert[k  ][j  ][i  ];
+		  nvertpc[1] = nvert[k  ][j  ][i+1];
+		  nvertpc[2] = nvert[k  ][j+1][i+1];
+		  nvertpc[3] = nvert[k  ][j+1][i  ];
+		  
+		  nvertpc[4] = nvert[k+1][j  ][i  ];
+		  nvertpc[5] = nvert[k+1][j  ][i+1];
+		  nvertpc[6] = nvert[k+1][j+1][i+1];
+		  nvertpc[7] = nvert[k+1][j+1][i  ];
 
-    if (i>=xs && i<xe && j>=ys && j<ye && k>=zs && k<ze) {
+		  kp[0]=k  ;jp[0]=j  ;ip[0]=i  ;
+		  kp[1]=k  ;jp[1]=j  ;ip[1]=i+1;
+		  kp[2]=k  ;jp[2]=j+1;ip[2]=i+1;
+		  kp[3]=k  ;jp[3]=j+1;ip[3]=i  ;
+		  kp[4]=k+1;jp[4]=j  ;ip[4]=i  ;
+		  kp[5]=k+1;jp[5]=j  ;ip[5]=i+1;
+		  kp[6]=k+1;jp[6]=j+1;ip[6]=i+1;
+		  kp[7]=k+1;jp[7]=j+1;ip[7]=i  ;
 
-      pc[0] = coor[k  ][j  ][i  ];
-      pc[1] = coor[k  ][j  ][i+1];
-      pc[2] = coor[k  ][j+1][i+1];
-      pc[3] = coor[k  ][j+1][i  ];
-      
-      pc[4] = coor[k+1][j  ][i  ];
-      pc[5] = coor[k+1][j  ][i+1];
-      pc[6] = coor[k+1][j+1][i+1];
-      pc[7] = coor[k+1][j+1][i  ];
+		  fsi_InterceptionPoint(p, pc, nvertpc, nfx, nfy, nfz, ibminfo, elmt, &intp, &(elmtinfo[elmt].Need3rdPoint));	  
+		  
 
-      nvertpc[0] = nvert[k  ][j  ][i  ];
-      nvertpc[1] = nvert[k  ][j  ][i+1];
-      nvertpc[2] = nvert[k  ][j+1][i+1];
-      nvertpc[3] = nvert[k  ][j+1][i  ];
-      
-      nvertpc[4] = nvert[k+1][j  ][i  ];
-      nvertpc[5] = nvert[k+1][j  ][i+1];
-      nvertpc[6] = nvert[k+1][j+1][i+1];
-      nvertpc[7] = nvert[k+1][j+1][i  ];
+		  
+			switch (ibminfo[elmt].imode) {
+				case(0): {
+					ibminfo[elmt].i1=ip[0]; ibminfo[elmt].j1 = jp[0]; ibminfo[elmt].k1 = kp[0];
+					ibminfo[elmt].i2=ip[1]; ibminfo[elmt].j2 = jp[1]; ibminfo[elmt].k2 = kp[1];
+					ibminfo[elmt].i3=ip[2]; ibminfo[elmt].j3 = jp[2]; ibminfo[elmt].k3 = kp[2];
+					GridCellaround2ndElmt(user,ibm,elmtinfo,intp,elmt,k,j,i,&k2,&j2,&i2,&foundFlag);
+					Find_fsi_2nd_interp_Coeff(foundFlag,i2,j2,k2,elmt,intp,ibminfo,user,ibm);
+					/* 	Find_fsi_2nd_interp_Coeff2(i2,j2,k2,elmt,intp,ibminfo,user,ibm); */
+					break;
+				}
+				case (1): {
+					ibminfo[elmt].i1=ip[0]; ibminfo[elmt].j1 = jp[0]; ibminfo[elmt].k1 = kp[0];
+					ibminfo[elmt].i2=ip[2]; ibminfo[elmt].j2 = jp[2]; ibminfo[elmt].k2 = kp[2];
+					ibminfo[elmt].i3=ip[3]; ibminfo[elmt].j3 = jp[3]; ibminfo[elmt].k3 = kp[3];
+					GridCellaround2ndElmt(user,ibm,elmtinfo,intp,elmt,k,j,i,&k2,&j2,&i2,&foundFlag);
+					Find_fsi_2nd_interp_Coeff(foundFlag,i2,j2,k2,elmt,intp,ibminfo,user,ibm);
+					/* 	Find_fsi_2nd_interp_Coeff2(i2,j2,k2,elmt,intp,ibminfo,user,ibm); */
+					/* 	Find_fsi_2nd_interp_Coeff(i,j,k-1,elmt,intp,ibminfo,user,ibm); */
+					/* 	Find_fsi_2nd_interp_Coeff2(i,j,k-1,elmt,intp,ibminfo,user,ibm); */
+						break;
+				}
+				case (2): {
+					ibminfo[elmt].i1=ip[4]; ibminfo[elmt].j1 = jp[4]; ibminfo[elmt].k1 = kp[4];
+					ibminfo[elmt].i2=ip[5]; ibminfo[elmt].j2 = jp[5]; ibminfo[elmt].k2 = kp[5];
+					ibminfo[elmt].i3=ip[6]; ibminfo[elmt].j3 = jp[6]; ibminfo[elmt].k3 = kp[6];
+					GridCellaround2ndElmt(user,ibm,elmtinfo,intp,elmt,k,j,i,&k2,&j2,&i2,&foundFlag);
+					Find_fsi_2nd_interp_Coeff(foundFlag,i2,j2,k2,elmt,intp,ibminfo,user,ibm);
+					/* 	Find_fsi_2nd_interp_Coeff2(i2,j2,k2,elmt,intp,ibminfo,user,ibm); */
+					/* 	Find_fsi_2nd_interp_Coeff(i,j,k+1,elmt,intp,ibminfo,user,ibm); */
+					/* 	Find_fsi_2nd_interp_Coeff2(i,j,k+1,elmt,intp,ibminfo,user,ibm); */
+					break;
+				}
+				case (3): {
+					ibminfo[elmt].i1=ip[4]; ibminfo[elmt].j1 = jp[4]; ibminfo[elmt].k1 = kp[4];
+					ibminfo[elmt].i2=ip[6]; ibminfo[elmt].j2 = jp[6]; ibminfo[elmt].k2 = kp[6];
+					ibminfo[elmt].i3=ip[7]; ibminfo[elmt].j3 = jp[7]; ibminfo[elmt].k3 = kp[7];
+					GridCellaround2ndElmt(user,ibm,elmtinfo,intp,elmt,k,j,i,&k2,&j2,&i2,&foundFlag);
+					Find_fsi_2nd_interp_Coeff(foundFlag,i2,j2,k2,elmt,intp,ibminfo,user,ibm);
+					/* 	Find_fsi_2nd_interp_Coeff2(i2,j2,k2,elmt,intp,ibminfo,user,ibm); */
+					/* 	Find_fsi_2nd_interp_Coeff(i,j,k+1,elmt,intp,ibminfo,user,ibm); */
+					/* 	Find_fsi_2nd_interp_Coeff2(i,j,k+1,elmt,intp,ibminfo,user,ibm); */
+					break;
+				}
+				case (4): {
+					ibminfo[elmt].i1=ip[0]; ibminfo[elmt].j1 = jp[0]; ibminfo[elmt].k1 = kp[0];
+					ibminfo[elmt].i2=ip[4]; ibminfo[elmt].j2 = jp[4]; ibminfo[elmt].k2 = kp[4];
+					ibminfo[elmt].i3=ip[3]; ibminfo[elmt].j3 = jp[3]; ibminfo[elmt].k3 = kp[3];
+				/*	if(elmt==29473){
+						PetscPrintf(PETSC_COMM_SELF, "now: imode=4; rank=%d; elmt=%d;\n",rank,elmt);
+						PetscPrintf(PETSC_COMM_SELF, "x: rank=%d; i1=%d; j1=%d; k1=%d; nv1=%f;\n",rank,ibminfo[elmt].i1,ibminfo[elmt].j1,ibminfo[elmt].k1,nvertpc[0]);
+						PetscPrintf(PETSC_COMM_SELF, "x: rank=%d; i2=%d; j2=%d; k2=%d; nv2=%f;\n",rank,ibminfo[elmt].i2,ibminfo[elmt].j2,ibminfo[elmt].k2,nvertpc[4]);
+						PetscPrintf(PETSC_COMM_SELF, "x: rank=%d; i3=%d; j3=%d; k3=%d; nv3=%f;\n",rank,ibminfo[elmt].i3,ibminfo[elmt].j3,ibminfo[elmt].k3,nvertpc[3]);
+					}*/		
+					GridCellaround2ndElmt(user,ibm,elmtinfo,intp,elmt,k,j,i,&k2,&j2,&i2,&foundFlag);
+					Find_fsi_2nd_interp_Coeff(foundFlag,i2,j2,k2,elmt,intp,ibminfo,user,ibm);
+					/* 	Find_fsi_2nd_interp_Coeff2(i2,j2,k2,elmt,intp,ibminfo,user,ibm); */
+					/* 	Find_fsi_2nd_interp_Coeff(i-1,j,k,elmt,intp,ibminfo,user,ibm); */
+					/* 	Find_fsi_2nd_interp_Coeff2(i-1,j,k,elmt,intp,ibminfo,user,ibm); */
+					break;				
+				}
+				case (5): {
+					ibminfo[elmt].i1=ip[3]; ibminfo[elmt].j1 = jp[3]; ibminfo[elmt].k1 = kp[3];
+					ibminfo[elmt].i2=ip[4]; ibminfo[elmt].j2 = jp[4]; ibminfo[elmt].k2 = kp[4];
+					ibminfo[elmt].i3=ip[7]; ibminfo[elmt].j3 = jp[7]; ibminfo[elmt].k3 = kp[7];
+					GridCellaround2ndElmt(user,ibm,elmtinfo,intp,elmt,k,j,i,&k2,&j2,&i2,&foundFlag);
+					Find_fsi_2nd_interp_Coeff(foundFlag,i2,j2,k2,elmt,intp,ibminfo,user,ibm);
+					/* 	Find_fsi_2nd_interp_Coeff2(i2,j2,k2,elmt,intp,ibminfo,user,ibm); */
+					/* 	Find_fsi_2nd_interp_Coeff(i-1,j,k,elmt,intp,ibminfo,user,ibm); */
+					/* 	Find_fsi_2nd_interp_Coeff2(i-1,j,k,elmt,intp,ibminfo,user,ibm); */
+					break;
+				}
+				case (6): {
+					ibminfo[elmt].i1=ip[1]; ibminfo[elmt].j1 = jp[1]; ibminfo[elmt].k1 = kp[1];
+					ibminfo[elmt].i2=ip[5]; ibminfo[elmt].j2 = jp[5]; ibminfo[elmt].k2 = kp[5];
+					ibminfo[elmt].i3=ip[2]; ibminfo[elmt].j3 = jp[2]; ibminfo[elmt].k3 = kp[2];
+					GridCellaround2ndElmt(user,ibm,elmtinfo,intp,elmt,k,j,i,&k2,&j2,&i2,&foundFlag);
+					Find_fsi_2nd_interp_Coeff(foundFlag,i2,j2,k2,elmt,intp,ibminfo,user,ibm);
+					/* 	Find_fsi_2nd_interp_Coeff2(i2,j2,k2,elmt,intp,ibminfo,user,ibm); */
+					/* 	Find_fsi_2nd_interp_Coeff(i+1,j,k,elmt,intp,ibminfo,user,ibm); */
+					/* 	Find_fsi_2nd_interp_Coeff2(i+1,j,k,elmt,intp,ibminfo,user,ibm); */
+					break;
+				}
+				case (7): {
+					ibminfo[elmt].i1=ip[2]; ibminfo[elmt].j1 = jp[2]; ibminfo[elmt].k1 = kp[2];
+					ibminfo[elmt].i2=ip[6]; ibminfo[elmt].j2 = jp[6]; ibminfo[elmt].k2 = kp[6];
+					ibminfo[elmt].i3=ip[5]; ibminfo[elmt].j3 = jp[5]; ibminfo[elmt].k3 = kp[5];
+					GridCellaround2ndElmt(user,ibm,elmtinfo,intp,elmt,k,j,i,&k2,&j2,&i2,&foundFlag);
+					Find_fsi_2nd_interp_Coeff(foundFlag,i2,j2,k2,elmt,intp,ibminfo,user,ibm);
+					/* 	Find_fsi_2nd_interp_Coeff2(i2,j2,k2,elmt,intp,ibminfo,user,ibm); */
+					/* 	Find_fsi_2nd_interp_Coeff(i+1,j,k,elmt,intp,ibminfo,user,ibm); */
+					/* 	Find_fsi_2nd_interp_Coeff2(i+1,j,k,elmt,intp,ibminfo,user,ibm); */
+					break;
+				}
+				case (8): {
+					ibminfo[elmt].i1=ip[0]; ibminfo[elmt].j1 = jp[0]; ibminfo[elmt].k1 = kp[0];
+					ibminfo[elmt].i2=ip[4]; ibminfo[elmt].j2 = jp[4]; ibminfo[elmt].k2 = kp[4];
+					ibminfo[elmt].i3=ip[1]; ibminfo[elmt].j3 = jp[1]; ibminfo[elmt].k3 = kp[1];
+					GridCellaround2ndElmt(user,ibm,elmtinfo,intp,elmt,k,j,i,&k2,&j2,&i2,&foundFlag);
+					Find_fsi_2nd_interp_Coeff(foundFlag,i2,j2,k2,elmt,intp,ibminfo,user,ibm);
+					/* 	Find_fsi_2nd_interp_Coeff2(i2,j2,k2,elmt,intp,ibminfo,user,ibm); */
+					/* 	Find_fsi_2nd_interp_Coeff(i,j-1,k,elmt,intp,ibminfo,user,ibm); */
+					/* 	Find_fsi_2nd_interp_Coeff2(i,j-1,k,elmt,intp,ibminfo,user,ibm); */
+					break;
+				}
+				case (9): {
+					ibminfo[elmt].i1=ip[1]; ibminfo[elmt].j1 = jp[1]; ibminfo[elmt].k1 = kp[1];
+					ibminfo[elmt].i2=ip[4]; ibminfo[elmt].j2 = jp[4]; ibminfo[elmt].k2 = kp[4];
+					ibminfo[elmt].i3=ip[5]; ibminfo[elmt].j3 = jp[5]; ibminfo[elmt].k3 = kp[5];
+					GridCellaround2ndElmt(user,ibm,elmtinfo,intp,elmt,k,j,i,&k2,&j2,&i2,&foundFlag);
+					Find_fsi_2nd_interp_Coeff(foundFlag,i2,j2,k2,elmt,intp,ibminfo,user,ibm);
+					/* 	Find_fsi_2nd_interp_Coeff2(i2,j2,k2,elmt,intp,ibminfo,user,ibm); */
+					/* 	Find_fsi_2nd_interp_Coeff(i,j-1,k,elmt,intp,ibminfo,user,ibm); */
+					/* 	Find_fsi_2nd_interp_Coeff2(i,j-1,k,elmt,intp,ibminfo,user,ibm); */
+					break;
+				}
+				case (10): {
+					ibminfo[elmt].i1=ip[3]; ibminfo[elmt].j1 = jp[3]; ibminfo[elmt].k1 = kp[3];
+					ibminfo[elmt].i2=ip[7]; ibminfo[elmt].j2 = jp[7]; ibminfo[elmt].k2 = kp[7];
+					ibminfo[elmt].i3=ip[2]; ibminfo[elmt].j3 = jp[2]; ibminfo[elmt].k3 = kp[2];
+					GridCellaround2ndElmt(user,ibm,elmtinfo,intp,elmt,k,j,i,&k2,&j2,&i2,&foundFlag);
+					Find_fsi_2nd_interp_Coeff(foundFlag,i2,j2,k2,elmt,intp,ibminfo,user,ibm);
+					/* 	Find_fsi_2nd_interp_Coeff2(i2,j2,k2,elmt,intp,ibminfo,user,ibm); */
+					/* 	Find_fsi_2nd_interp_Coeff(i,j+1,k,elmt,intp,ibminfo,user,ibm); */
+					/* 	Find_fsi_2nd_interp_Coeff2(i,j+1,k,elmt,intp,ibminfo,user,ibm); */
+					break;
+				}
+				case (11): {
+					ibminfo[elmt].i1=ip[2]; ibminfo[elmt].j1 = jp[2]; ibminfo[elmt].k1 = kp[2];
+					ibminfo[elmt].i2=ip[7]; ibminfo[elmt].j2 = jp[7]; ibminfo[elmt].k2 = kp[7];
+					ibminfo[elmt].i3=ip[6]; ibminfo[elmt].j3 = jp[6]; ibminfo[elmt].k3 = kp[6];
+					GridCellaround2ndElmt(user,ibm,elmtinfo,intp,elmt,k,j,i,&k2,&j2,&i2,&foundFlag);
+					Find_fsi_2nd_interp_Coeff(foundFlag,i2,j2,k2,elmt,intp,ibminfo,user,ibm);
+					/* 	Find_fsi_2nd_interp_Coeff2(i2,j2,k2,elmt,intp,ibminfo,user,ibm); */
+					/* 	Find_fsi_2nd_interp_Coeff(i,j+1,k,elmt,intp,ibminfo,user,ibm); */
+					/* 	Find_fsi_2nd_interp_Coeff2(i,j+1,k,elmt,intp,ibminfo,user,ibm); */
+					break;
+				}
+			} // end of switch
+		
+			if (ibminfo[elmt].imode<0){
+				PetscPrintf(PETSC_COMM_SELF, "FSI Interpolation Coeffients Were not Found!!!! %d  %d %le \n", elmt, ibminfo[elmt].imode,ibminfo[elmt].d_i);
+				// The following values are wrong
+			}
+			
+		/*	if(elmt==29473){
+				PetscPrintf(PETSC_COMM_SELF, "now_2_X: rank=%d; elmt=%d;\n",rank,elmt);
+				PetscPrintf(PETSC_COMM_SELF, "ax: rank=%d; i1=%d; j1=%d; k1=%d;\n",rank,ibminfo[elmt].i1,ibminfo[elmt].j1,ibminfo[elmt].k1);
+				PetscPrintf(PETSC_COMM_SELF, "ax: rank=%d; i2=%d; j2=%d; k2=%d;\n",rank,ibminfo[elmt].i2,ibminfo[elmt].j2,ibminfo[elmt].k2);
+				PetscPrintf(PETSC_COMM_SELF, "ax: rank=%d; i3=%d; j3=%d; k3=%d;\n",rank,ibminfo[elmt].i3,ibminfo[elmt].j3,ibminfo[elmt].k3);
+				PetscPrintf(PETSC_COMM_SELF, "ax: rank=%d elmt=%d; n_P=%d; F=%d; imode=%d;\n",rank,elmt,elmtinfo[elmt].n_P,elmtinfo[elmt].FoundAroundcell,ibminfo[elmt].imode);
+				PetscPrintf(PETSC_COMM_SELF, "ax: rank=%d cr1=%f; cr2=%f; cr3=%f;\n",rank,ibminfo[elmt].cr1,ibminfo[elmt].cr2,ibminfo[elmt].cr3);
+			}*/
+		
+		} //end of if (i>=lxs && i<lxe && j>=lys && j<lye && k>=lzs && k<lze)
+		
+	  }
+/*	if(elmt == 29473){
+		PetscPrintf(PETSC_COMM_SELF, "af: rank=%d elmt=%d; n_P=%d; F=%d; imode=%d;\n",rank,elmt,elmtinfo[elmt].n_P,elmtinfo[elmt].FoundAroundcell,ibminfo[elmt].imode);
+		PetscPrintf(PETSC_COMM_SELF, "af: rank=%d cr1=%f; cr2=%f; cr3=%f;\n",rank,ibminfo[elmt].cr1,ibminfo[elmt].cr2,ibminfo[elmt].cr3);
+	}*/  
+	PetscReal di = ibminfo[elmt].d_i;
+	PetscGlobalSum (&di, &ibminfo[elmt].d_i,PETSC_COMM_WORLD);
+	//PetscPrintf(PETSC_COMM_SELF, " ASR XXX fsi Coeff!!!! elmt=%d rank=%d imode=%d di=%le \n", elmt, rank, ibminfo[elmt].imode, ibminfo[elmt].d_i);
 
-      kp[0]=k  ;jp[0]=j  ;ip[0]=i  ;
-      kp[1]=k  ;jp[1]=j  ;ip[1]=i+1;
-      kp[2]=k  ;jp[2]=j+1;ip[2]=i+1;
-      kp[3]=k  ;jp[3]=j+1;ip[3]=i  ;
-      kp[4]=k+1;jp[4]=j  ;ip[4]=i  ;
-      kp[5]=k+1;jp[5]=j  ;ip[5]=i+1;
-      kp[6]=k+1;jp[6]=j+1;ip[6]=i+1;
-      kp[7]=k+1;jp[7]=j+1;ip[7]=i  ;
-
-      fsi_InterceptionPoint(p,pc,nvertpc, nfx, nfy,
-	      nfz, ibminfo, elmt, &intp, 
-	      &(elmtinfo[elmt].Need3rdPoint));
-
-      switch (ibminfo[elmt].imode) {
-      case(0): {
-	ibminfo[elmt].i1=ip[0]; ibminfo[elmt].j1 = jp[0]; ibminfo[elmt].k1 = kp[0];
-	ibminfo[elmt].i2=ip[1]; ibminfo[elmt].j2 = jp[1]; ibminfo[elmt].k2 = kp[1];
-	ibminfo[elmt].i3=ip[2]; ibminfo[elmt].j3 = jp[2]; ibminfo[elmt].k3 = kp[2];
-	GridCellaround2ndElmt(user,ibm,intp,elmt,k,j,i,&k2,&j2,&i2);
-	Find_fsi_2nd_interp_Coeff(i2,j2,k2,elmt,intp,ibminfo,user,ibm);
-/* 	Find_fsi_2nd_interp_Coeff2(i2,j2,k2,elmt,intp,ibminfo,user,ibm); */
-	break;
-      }
-      case (1): {
-	ibminfo[elmt].i1=ip[0]; ibminfo[elmt].j1 = jp[0]; ibminfo[elmt].k1 = kp[0];
-	ibminfo[elmt].i2=ip[2]; ibminfo[elmt].j2 = jp[2]; ibminfo[elmt].k2 = kp[2];
-	ibminfo[elmt].i3=ip[3]; ibminfo[elmt].j3 = jp[3]; ibminfo[elmt].k3 = kp[3];
-	GridCellaround2ndElmt(user,ibm,intp,elmt,k,j,i,&k2,&j2,&i2);
-	Find_fsi_2nd_interp_Coeff(i2,j2,k2,elmt,intp,ibminfo,user,ibm);
-/* 	Find_fsi_2nd_interp_Coeff2(i2,j2,k2,elmt,intp,ibminfo,user,ibm); */
-/* 	Find_fsi_2nd_interp_Coeff(i,j,k-1,elmt,intp,ibminfo,user,ibm); */
-/* 	Find_fsi_2nd_interp_Coeff2(i,j,k-1,elmt,intp,ibminfo,user,ibm); */
-	break;
-      }
-      case (2): {
-	ibminfo[elmt].i1=ip[4]; ibminfo[elmt].j1 = jp[4]; ibminfo[elmt].k1 = kp[4];
-	ibminfo[elmt].i2=ip[5]; ibminfo[elmt].j2 = jp[5]; ibminfo[elmt].k2 = kp[5];
-	ibminfo[elmt].i3=ip[6]; ibminfo[elmt].j3 = jp[6]; ibminfo[elmt].k3 = kp[6];
-	GridCellaround2ndElmt(user,ibm,intp,elmt,k,j,i,&k2,&j2,&i2);
-	Find_fsi_2nd_interp_Coeff(i2,j2,k2,elmt,intp,ibminfo,user,ibm);
-/* 	Find_fsi_2nd_interp_Coeff2(i2,j2,k2,elmt,intp,ibminfo,user,ibm); */
-/* 	Find_fsi_2nd_interp_Coeff(i,j,k+1,elmt,intp,ibminfo,user,ibm); */
-/* 	Find_fsi_2nd_interp_Coeff2(i,j,k+1,elmt,intp,ibminfo,user,ibm); */
-	break;
-      }
-      case (3): {
-	ibminfo[elmt].i1=ip[4]; ibminfo[elmt].j1 = jp[4]; ibminfo[elmt].k1 = kp[4];
-	ibminfo[elmt].i2=ip[6]; ibminfo[elmt].j2 = jp[6]; ibminfo[elmt].k2 = kp[6];
-	ibminfo[elmt].i3=ip[7]; ibminfo[elmt].j3 = jp[7]; ibminfo[elmt].k3 = kp[7];
-	GridCellaround2ndElmt(user,ibm,intp,elmt,k,j,i,&k2,&j2,&i2);
-	Find_fsi_2nd_interp_Coeff(i2,j2,k2,elmt,intp,ibminfo,user,ibm);
-/* 	Find_fsi_2nd_interp_Coeff2(i2,j2,k2,elmt,intp,ibminfo,user,ibm); */
-/* 	Find_fsi_2nd_interp_Coeff(i,j,k+1,elmt,intp,ibminfo,user,ibm); */
-/* 	Find_fsi_2nd_interp_Coeff2(i,j,k+1,elmt,intp,ibminfo,user,ibm); */
-	break;
-      }
-      case (4): {
-	ibminfo[elmt].i1=ip[0]; ibminfo[elmt].j1 = jp[0]; ibminfo[elmt].k1 = kp[0];
-	ibminfo[elmt].i2=ip[4]; ibminfo[elmt].j2 = jp[4]; ibminfo[elmt].k2 = kp[4];
-	ibminfo[elmt].i3=ip[3]; ibminfo[elmt].j3 = jp[3]; ibminfo[elmt].k3 = kp[3];
-	GridCellaround2ndElmt(user,ibm,intp,elmt,k,j,i,&k2,&j2,&i2);
-	Find_fsi_2nd_interp_Coeff(i2,j2,k2,elmt,intp,ibminfo,user,ibm);
-/* 	Find_fsi_2nd_interp_Coeff2(i2,j2,k2,elmt,intp,ibminfo,user,ibm); */
-/* 	Find_fsi_2nd_interp_Coeff(i-1,j,k,elmt,intp,ibminfo,user,ibm); */
-/* 	Find_fsi_2nd_interp_Coeff2(i-1,j,k,elmt,intp,ibminfo,user,ibm); */       
-      }
-      case (5): {
-	ibminfo[elmt].i1=ip[3]; ibminfo[elmt].j1 = jp[3]; ibminfo[elmt].k1 = kp[3];
-	ibminfo[elmt].i2=ip[4]; ibminfo[elmt].j2 = jp[4]; ibminfo[elmt].k2 = kp[4];
-	ibminfo[elmt].i3=ip[7]; ibminfo[elmt].j3 = jp[7]; ibminfo[elmt].k3 = kp[7];
-	GridCellaround2ndElmt(user,ibm,intp,elmt,k,j,i,&k2,&j2,&i2);
-	Find_fsi_2nd_interp_Coeff(i2,j2,k2,elmt,intp,ibminfo,user,ibm);
-/* 	Find_fsi_2nd_interp_Coeff2(i2,j2,k2,elmt,intp,ibminfo,user,ibm); */
-/* 	Find_fsi_2nd_interp_Coeff(i-1,j,k,elmt,intp,ibminfo,user,ibm); */
-/* 	Find_fsi_2nd_interp_Coeff2(i-1,j,k,elmt,intp,ibminfo,user,ibm); */
-	break;
-      }
-      case (6): {
-	ibminfo[elmt].i1=ip[1]; ibminfo[elmt].j1 = jp[1]; ibminfo[elmt].k1 = kp[1];
-	ibminfo[elmt].i2=ip[5]; ibminfo[elmt].j2 = jp[5]; ibminfo[elmt].k2 = kp[5];
-	ibminfo[elmt].i3=ip[2]; ibminfo[elmt].j3 = jp[2]; ibminfo[elmt].k3 = kp[2];
-	GridCellaround2ndElmt(user,ibm,intp,elmt,k,j,i,&k2,&j2,&i2);
-	Find_fsi_2nd_interp_Coeff(i2,j2,k2,elmt,intp,ibminfo,user,ibm);
-/* 	Find_fsi_2nd_interp_Coeff2(i2,j2,k2,elmt,intp,ibminfo,user,ibm); */
-/* 	Find_fsi_2nd_interp_Coeff(i+1,j,k,elmt,intp,ibminfo,user,ibm); */
-/* 	Find_fsi_2nd_interp_Coeff2(i+1,j,k,elmt,intp,ibminfo,user,ibm); */
-	break;
-      }
-      case (7): {
-	ibminfo[elmt].i1=ip[2]; ibminfo[elmt].j1 = jp[2]; ibminfo[elmt].k1 = kp[2];
-	ibminfo[elmt].i2=ip[6]; ibminfo[elmt].j2 = jp[6]; ibminfo[elmt].k2 = kp[6];
-	ibminfo[elmt].i3=ip[5]; ibminfo[elmt].j3 = jp[5]; ibminfo[elmt].k3 = kp[5];
-	GridCellaround2ndElmt(user,ibm,intp,elmt,k,j,i,&k2,&j2,&i2);
-	Find_fsi_2nd_interp_Coeff(i2,j2,k2,elmt,intp,ibminfo,user,ibm);
-/* 	Find_fsi_2nd_interp_Coeff2(i2,j2,k2,elmt,intp,ibminfo,user,ibm); */
-/* 	Find_fsi_2nd_interp_Coeff(i+1,j,k,elmt,intp,ibminfo,user,ibm); */
-/* 	Find_fsi_2nd_interp_Coeff2(i+1,j,k,elmt,intp,ibminfo,user,ibm); */
-	break;
-      }
-      case (8): {
-	ibminfo[elmt].i1=ip[0]; ibminfo[elmt].j1 = jp[0]; ibminfo[elmt].k1 = kp[0];
-	ibminfo[elmt].i2=ip[4]; ibminfo[elmt].j2 = jp[4]; ibminfo[elmt].k2 = kp[4];
-	ibminfo[elmt].i3=ip[1]; ibminfo[elmt].j3 = jp[1]; ibminfo[elmt].k3 = kp[1];
-	GridCellaround2ndElmt(user,ibm,intp,elmt,k,j,i,&k2,&j2,&i2);
-	Find_fsi_2nd_interp_Coeff(i2,j2,k2,elmt,intp,ibminfo,user,ibm);
-/* 	Find_fsi_2nd_interp_Coeff2(i2,j2,k2,elmt,intp,ibminfo,user,ibm); */
-/* 	Find_fsi_2nd_interp_Coeff(i,j-1,k,elmt,intp,ibminfo,user,ibm); */
-/* 	Find_fsi_2nd_interp_Coeff2(i,j-1,k,elmt,intp,ibminfo,user,ibm); */
-	break;
-      }
-      case (9): {
-	ibminfo[elmt].i1=ip[1]; ibminfo[elmt].j1 = jp[1]; ibminfo[elmt].k1 = kp[1];
-	ibminfo[elmt].i2=ip[4]; ibminfo[elmt].j2 = jp[4]; ibminfo[elmt].k2 = kp[4];
-	ibminfo[elmt].i3=ip[5]; ibminfo[elmt].j3 = jp[5]; ibminfo[elmt].k3 = kp[5];
-	GridCellaround2ndElmt(user,ibm,intp,elmt,k,j,i,&k2,&j2,&i2);
-	Find_fsi_2nd_interp_Coeff(i2,j2,k2,elmt,intp,ibminfo,user,ibm);
-/* 	Find_fsi_2nd_interp_Coeff2(i2,j2,k2,elmt,intp,ibminfo,user,ibm); */
-/* 	Find_fsi_2nd_interp_Coeff(i,j-1,k,elmt,intp,ibminfo,user,ibm); */
-/* 	Find_fsi_2nd_interp_Coeff2(i,j-1,k,elmt,intp,ibminfo,user,ibm); */
-	break;
-      }
-      case (10): {
-	ibminfo[elmt].i1=ip[3]; ibminfo[elmt].j1 = jp[3]; ibminfo[elmt].k1 = kp[3];
-	ibminfo[elmt].i2=ip[7]; ibminfo[elmt].j2 = jp[7]; ibminfo[elmt].k2 = kp[7];
-	ibminfo[elmt].i3=ip[2]; ibminfo[elmt].j3 = jp[2]; ibminfo[elmt].k3 = kp[2];
-	GridCellaround2ndElmt(user,ibm,intp,elmt,k,j,i,&k2,&j2,&i2);
-	Find_fsi_2nd_interp_Coeff(i2,j2,k2,elmt,intp,ibminfo,user,ibm);
-/* 	Find_fsi_2nd_interp_Coeff2(i2,j2,k2,elmt,intp,ibminfo,user,ibm); */
-/* 	Find_fsi_2nd_interp_Coeff(i,j+1,k,elmt,intp,ibminfo,user,ibm); */
-/* 	Find_fsi_2nd_interp_Coeff2(i,j+1,k,elmt,intp,ibminfo,user,ibm); */
-	break;
-      }
-      case (11): {
-	ibminfo[elmt].i1=ip[2]; ibminfo[elmt].j1 = jp[2]; ibminfo[elmt].k1 = kp[2];
-	ibminfo[elmt].i2=ip[7]; ibminfo[elmt].j2 = jp[7]; ibminfo[elmt].k2 = kp[7];
-	ibminfo[elmt].i3=ip[6]; ibminfo[elmt].j3 = jp[6]; ibminfo[elmt].k3 = kp[6];
-	GridCellaround2ndElmt(user,ibm,intp,elmt,k,j,i,&k2,&j2,&i2);
-	Find_fsi_2nd_interp_Coeff(i2,j2,k2,elmt,intp,ibminfo,user,ibm);
-/* 	Find_fsi_2nd_interp_Coeff2(i2,j2,k2,elmt,intp,ibminfo,user,ibm); */
-/* 	Find_fsi_2nd_interp_Coeff(i,j+1,k,elmt,intp,ibminfo,user,ibm); */
-/* 	Find_fsi_2nd_interp_Coeff2(i,j+1,k,elmt,intp,ibminfo,user,ibm); */
-	break;
-      }
-      }
-      if (ibminfo[elmt].imode<0) 
-	PetscPrintf(PETSC_COMM_SELF, "FSI Interpolation Coeffients Were not Found!!!! %d  %d %le \n", elmt, ibminfo[elmt].imode,ibminfo[elmt].d_i);
-      //PetscPrintf(PETSC_COMM_SELF, "FSI Interpolatoion host %d  %d  %d \n", ibminfo[elmt].i1,ibminfo[elmt].j1,ibminfo[elmt].k1);
-
-    }
-  }
-  }
+  } // end of   for (elmt=0; elmt<n_elmt; elmt++) 
   DAVecRestoreArray(fda, user->lCent,&coor);  
   DAVecRestoreArray(da, user->lNvert, &nvert);
   return(0);
@@ -1252,237 +1953,237 @@ PetscErrorCode fsi_InterceptionPoint2(Cmpnts p, Cmpnts pc[8],
 	    dz1 * (dx2 * dy3 - dy2 * dx3)) / d;
       
 
-      if (d>0) {
-	pint.x = p.x + d * nfx;
-	pint.y = p.y + d * nfy;
-	pint.z = p.z + d * nfz;
+	  if (d>0) {
+		pint.x = p.x + d * nfx;
+		pint.y = p.y + d * nfy;
+		pint.z = p.z + d * nfz;
 
-	rx1 = p2.x - p1.x; ry1 = p2.y - p1.y; rz1 = p2.z - p1.z;
-	rx2 = p3.x - p1.x; ry2 = p3.y - p1.y; rz2 = p3.z - p1.z;
-      
-	nfxt = ry1 * rz2 - rz1 * ry2;
-	nfyt = -rx1 * rz2 + rz1 * rx2;
-	nfzt = rx1 * ry2 - ry1 * rx2;
+		rx1 = p2.x - p1.x; ry1 = p2.y - p1.y; rz1 = p2.z - p1.z;
+		rx2 = p3.x - p1.x; ry2 = p3.y - p1.y; rz2 = p3.z - p1.z;
+		  
+		nfxt = ry1 * rz2 - rz1 * ry2;
+		nfyt = -rx1 * rz2 + rz1 * rx2;
+		nfzt = rx1 * ry2 - ry1 * rx2;
 
-	flag = ISPointInTriangle(pint, p1, p2, p3, nfxt, nfyt, nfzt);
-	if (flag >= 0) {
-	  cell = i;
+		flag = ISPointInTriangle(pint, p1, p2, p3, nfxt, nfyt, nfzt);
+		if (flag >= 0) {
+		  cell = i;
 
-	  /*	  if (flagprint==1) {
-	    PetscPrintf(PETSC_COMM_WORLD, "%e %e %e %e \n", pint.x, pint.y, pint.z, d);
-	    PetscPrintf(PETSC_COMM_WORLD, "%e %e %e\n", nfx, nfy, nfz);
-	    PetscPrintf(PETSC_COMM_WORLD, "%e %e %e\n", p2.x, p2.y, p2.z);
-	    PetscPrintf(PETSC_COMM_WORLD, "%e %e %e\n", p3.x, p3.y, p3.z);
-	    }*/
+		  /*	  if (flagprint==1) {
+			PetscPrintf(PETSC_COMM_WORLD, "%e %e %e %e \n", pint.x, pint.y, pint.z, d);
+			PetscPrintf(PETSC_COMM_WORLD, "%e %e %e\n", nfx, nfy, nfz);
+			PetscPrintf(PETSC_COMM_WORLD, "%e %e %e\n", p2.x, p2.y, p2.z);
+			PetscPrintf(PETSC_COMM_WORLD, "%e %e %e\n", p3.x, p3.y, p3.z);
+			}*/
 
-	  // Calculate the interpolatin Coefficients
-	  if ((int)(nvertpc[triangles[0][i]] +0.5) != 3 &&
-	      (int)(nvertpc[triangles[1][i]] +0.5) != 3 &&
-	      (int)(nvertpc[triangles[2][i]] +0.5) != 3) {
+		  // Calculate the interpolatin Coefficients
+		  if ((int)(nvertpc[triangles[0][i]] +0.5) != 3 &&
+			  (int)(nvertpc[triangles[1][i]] +0.5) != 3 &&
+			  (int)(nvertpc[triangles[2][i]] +0.5) != 3) {
 
-	    if (fabs(nfxt) >= fabs(nfyt) && fabs(nfxt)>= fabs(nfzt)) {
-	      pjp.x = pint.y; pjp.y = pint.z;
-	      pj1.x = p1.y;   pj1.y = p1.z;
-	      pj2.x = p2.y;   pj2.y = p2.z;
-	      pj3.x = p3.y;   pj3.y = p3.z;
-	      triangle_intpp_fsi(pjp, pj1, pj2, pj3, ibminfo, number);
-	      triangle_intpp2_fsi(pjp, pj1, pj2, pj3, ibminfo, number);
-	    }
-	    else if (fabs(nfyt) >= fabs(nfxt) && fabs(nfyt)>= fabs(nfzt)) {
-	      pjp.x = pint.x; pjp.y = pint.z;
-	      pj1.x = p1.x;   pj1.y = p1.z;
-	      pj2.x = p2.x;   pj2.y = p2.z;
-	      pj3.x = p3.x;   pj3.y = p3.z;
-	      triangle_intpp_fsi(pjp, pj1, pj2, pj3, ibminfo, number);
-	      triangle_intpp2_fsi(pjp, pj1, pj2, pj3, ibminfo, number);
-	    }
-	    else if (fabs(nfzt) >= fabs(nfyt) && fabs(nfzt)>= fabs(nfxt)) {
-	      pjp.x = pint.y; pjp.y = pint.x;
-	      pj1.x = p1.y;   pj1.y = p1.x;
-	      pj2.x = p2.y;   pj2.y = p2.x;
-	      pj3.x = p3.y;   pj3.y = p3.x;
-	      triangle_intpp_fsi(pjp, pj1, pj2, pj3, ibminfo,number);
-	      triangle_intpp2_fsi(pjp, pj1, pj2, pj3, ibminfo, number);
-	    }
-	  } else  if ((int)(nvertpc[triangles[0][i]] +0.5) == 3 &&
-		      (int)(nvertpc[triangles[1][i]] +0.5) != 3 &&
-		      (int)(nvertpc[triangles[2][i]] +0.5) != 3) {
-	    if (fabs(nfxt) >= fabs(nfyt) && fabs(nfxt)>= fabs(nfzt)) {
-	      pjp.x = pint.y; pjp.y = pint.z;
-	      pj1.x = p1.y;   pj1.y = p1.z;
-	      pj2.x = p2.y;   pj2.y = p2.z;
-	      pj3.x = p3.y;   pj3.y = p3.z;
-	      linear_intpp(pjp, pj2, pj3, ibminfo, number,1);
-	      triangle_intpp2_fsi(pjp, pj1, pj2, pj3, ibminfo, number);
-	    }
-	    else if (fabs(nfyt) >= fabs(nfxt) && fabs(nfyt)>= fabs(nfzt)) {
-	      pjp.x = pint.x; pjp.y = pint.z;
-	      pj1.x = p1.x;   pj1.y = p1.z;
-	      pj2.x = p2.x;   pj2.y = p2.z;
-	      pj3.x = p3.x;   pj3.y = p3.z;
-	      linear_intpp(pjp, pj2, pj3, ibminfo, number,1);
-	      triangle_intpp2_fsi(pjp, pj1, pj2, pj3, ibminfo, number);
-	    }
-	    else if (fabs(nfzt) >= fabs(nfyt) && fabs(nfzt)>= fabs(nfxt)) {
-	      pjp.x = pint.y; pjp.y = pint.x;
-	      pj1.x = p1.y;   pj1.y = p1.x;
-	      pj2.x = p2.y;   pj2.y = p2.x;
-	      pj3.x = p3.y;   pj3.y = p3.x;
-	      linear_intpp(pjp, pj2, pj3, ibminfo,number,1);
-	      triangle_intpp2_fsi(pjp, pj1, pj2, pj3, ibminfo, number);
-	    }
-	  } else  if ((int)(nvertpc[triangles[0][i]] +0.5) != 3 &&
-		      (int)(nvertpc[triangles[1][i]] +0.5) == 3 &&
-		      (int)(nvertpc[triangles[2][i]] +0.5) != 3) {
-	    if (fabs(nfxt) >= fabs(nfyt) && fabs(nfxt)>= fabs(nfzt)) {
-	      pjp.x = pint.y; pjp.y = pint.z;
-	      pj1.x = p1.y;   pj1.y = p1.z;
-	      pj2.x = p2.y;   pj2.y = p2.z;
-	      pj3.x = p3.y;   pj3.y = p3.z;
-	      linear_intpp(pjp, pj1, pj3, ibminfo, number,2);
-	      triangle_intpp2_fsi(pjp, pj1, pj2, pj3, ibminfo, number);
-	    }
-	    else if (fabs(nfyt) >= fabs(nfxt) && fabs(nfyt)>= fabs(nfzt)) {
-	      pjp.x = pint.x; pjp.y = pint.z;
-	      pj1.x = p1.x;   pj1.y = p1.z;
-	      pj2.x = p2.x;   pj2.y = p2.z;
-	      pj3.x = p3.x;   pj3.y = p3.z;
-	      linear_intpp(pjp, pj1, pj3, ibminfo, number,2);
-	      triangle_intpp2_fsi(pjp, pj1, pj2, pj3, ibminfo, number);
-	    }
-	    else if (fabs(nfzt) >= fabs(nfyt) && fabs(nfzt)>= fabs(nfxt)) {
-	      pjp.x = pint.y; pjp.y = pint.x;
-	      pj1.x = p1.y;   pj1.y = p1.x;
-	      pj2.x = p2.y;   pj2.y = p2.x;
-	      pj3.x = p3.y;   pj3.y = p3.x;
-	      linear_intpp(pjp, pj1, pj3, ibminfo,number,2);
-	      triangle_intpp2_fsi(pjp, pj1, pj2, pj3, ibminfo, number);
-	    }
+			if (fabs(nfxt) >= fabs(nfyt) && fabs(nfxt)>= fabs(nfzt)) {
+			  pjp.x = pint.y; pjp.y = pint.z;
+			  pj1.x = p1.y;   pj1.y = p1.z;
+			  pj2.x = p2.y;   pj2.y = p2.z;
+			  pj3.x = p3.y;   pj3.y = p3.z;
+			  triangle_intpp_fsi(pjp, pj1, pj2, pj3, ibminfo, number);
+			  triangle_intpp2_fsi(pjp, pj1, pj2, pj3, ibminfo, number);
+			}
+			else if (fabs(nfyt) >= fabs(nfxt) && fabs(nfyt)>= fabs(nfzt)) {
+			  pjp.x = pint.x; pjp.y = pint.z;
+			  pj1.x = p1.x;   pj1.y = p1.z;
+			  pj2.x = p2.x;   pj2.y = p2.z;
+			  pj3.x = p3.x;   pj3.y = p3.z;
+			  triangle_intpp_fsi(pjp, pj1, pj2, pj3, ibminfo, number);
+			  triangle_intpp2_fsi(pjp, pj1, pj2, pj3, ibminfo, number);
+			}
+			else if (fabs(nfzt) >= fabs(nfyt) && fabs(nfzt)>= fabs(nfxt)) {
+			  pjp.x = pint.y; pjp.y = pint.x;
+			  pj1.x = p1.y;   pj1.y = p1.x;
+			  pj2.x = p2.y;   pj2.y = p2.x;
+			  pj3.x = p3.y;   pj3.y = p3.x;
+			  triangle_intpp_fsi(pjp, pj1, pj2, pj3, ibminfo,number);
+			  triangle_intpp2_fsi(pjp, pj1, pj2, pj3, ibminfo, number);
+			}
+		  } else  if ((int)(nvertpc[triangles[0][i]] +0.5) == 3 &&
+				  (int)(nvertpc[triangles[1][i]] +0.5) != 3 &&
+				  (int)(nvertpc[triangles[2][i]] +0.5) != 3) {
+			if (fabs(nfxt) >= fabs(nfyt) && fabs(nfxt)>= fabs(nfzt)) {
+			  pjp.x = pint.y; pjp.y = pint.z;
+			  pj1.x = p1.y;   pj1.y = p1.z;
+			  pj2.x = p2.y;   pj2.y = p2.z;
+			  pj3.x = p3.y;   pj3.y = p3.z;
+			  linear_intpp(pjp, pj2, pj3, ibminfo, number,1);
+			  triangle_intpp2_fsi(pjp, pj1, pj2, pj3, ibminfo, number);
+			}
+			else if (fabs(nfyt) >= fabs(nfxt) && fabs(nfyt)>= fabs(nfzt)) {
+			  pjp.x = pint.x; pjp.y = pint.z;
+			  pj1.x = p1.x;   pj1.y = p1.z;
+			  pj2.x = p2.x;   pj2.y = p2.z;
+			  pj3.x = p3.x;   pj3.y = p3.z;
+			  linear_intpp(pjp, pj2, pj3, ibminfo, number,1);
+			  triangle_intpp2_fsi(pjp, pj1, pj2, pj3, ibminfo, number);
+			}
+			else if (fabs(nfzt) >= fabs(nfyt) && fabs(nfzt)>= fabs(nfxt)) {
+			  pjp.x = pint.y; pjp.y = pint.x;
+			  pj1.x = p1.y;   pj1.y = p1.x;
+			  pj2.x = p2.y;   pj2.y = p2.x;
+			  pj3.x = p3.y;   pj3.y = p3.x;
+			  linear_intpp(pjp, pj2, pj3, ibminfo,number,1);
+			  triangle_intpp2_fsi(pjp, pj1, pj2, pj3, ibminfo, number);
+			}
+		  } else  if ((int)(nvertpc[triangles[0][i]] +0.5) != 3 &&
+				  (int)(nvertpc[triangles[1][i]] +0.5) == 3 &&
+				  (int)(nvertpc[triangles[2][i]] +0.5) != 3) {
+			if (fabs(nfxt) >= fabs(nfyt) && fabs(nfxt)>= fabs(nfzt)) {
+			  pjp.x = pint.y; pjp.y = pint.z;
+			  pj1.x = p1.y;   pj1.y = p1.z;
+			  pj2.x = p2.y;   pj2.y = p2.z;
+			  pj3.x = p3.y;   pj3.y = p3.z;
+			  linear_intpp(pjp, pj1, pj3, ibminfo, number,2);
+			  triangle_intpp2_fsi(pjp, pj1, pj2, pj3, ibminfo, number);
+			}
+			else if (fabs(nfyt) >= fabs(nfxt) && fabs(nfyt)>= fabs(nfzt)) {
+			  pjp.x = pint.x; pjp.y = pint.z;
+			  pj1.x = p1.x;   pj1.y = p1.z;
+			  pj2.x = p2.x;   pj2.y = p2.z;
+			  pj3.x = p3.x;   pj3.y = p3.z;
+			  linear_intpp(pjp, pj1, pj3, ibminfo, number,2);
+			  triangle_intpp2_fsi(pjp, pj1, pj2, pj3, ibminfo, number);
+			}
+			else if (fabs(nfzt) >= fabs(nfyt) && fabs(nfzt)>= fabs(nfxt)) {
+			  pjp.x = pint.y; pjp.y = pint.x;
+			  pj1.x = p1.y;   pj1.y = p1.x;
+			  pj2.x = p2.y;   pj2.y = p2.x;
+			  pj3.x = p3.y;   pj3.y = p3.x;
+			  linear_intpp(pjp, pj1, pj3, ibminfo,number,2);
+			  triangle_intpp2_fsi(pjp, pj1, pj2, pj3, ibminfo, number);
+			}
 
-	  } else  if ((int)(nvertpc[triangles[0][i]] +0.5) != 3 &&
-		      (int)(nvertpc[triangles[1][i]] +0.5) != 3 &&
-		      (int)(nvertpc[triangles[2][i]] +0.5) == 3) {
-	    if (fabs(nfxt) >= fabs(nfyt) && fabs(nfxt)>= fabs(nfzt)) {
-	      pjp.x = pint.y; pjp.y = pint.z;
-	      pj1.x = p1.y;   pj1.y = p1.z;
-	      pj2.x = p2.y;   pj2.y = p2.z;
-	      pj3.x = p3.y;   pj3.y = p3.z;
-	      linear_intpp(pjp, pj1, pj2, ibminfo, number,3);
-	      triangle_intpp2_fsi(pjp, pj1, pj2, pj3, ibminfo, number);
-	    }
-	    else if (fabs(nfyt) >= fabs(nfxt) && fabs(nfyt)>= fabs(nfzt)) {
-	      pjp.x = pint.x; pjp.y = pint.z;
-	      pj1.x = p1.x;   pj1.y = p1.z;
-	      pj2.x = p2.x;   pj2.y = p2.z;
-	      pj3.x = p3.x;   pj3.y = p3.z;
-	      linear_intpp(pjp, pj1, pj2, ibminfo, number,3);
-	      triangle_intpp2_fsi(pjp, pj1, pj2, pj3, ibminfo, number);
-	    }
-	    else if (fabs(nfzt) >= fabs(nfyt) && fabs(nfzt)>= fabs(nfxt)) {
-	      pjp.x = pint.y; pjp.y = pint.x;
-	      pj1.x = p1.y;   pj1.y = p1.x;
-	      pj2.x = p2.y;   pj2.y = p2.x;
-	      pj3.x = p3.y;   pj3.y = p3.x;
-	      linear_intpp(pjp, pj1, pj2, ibminfo,number,3);
-	      triangle_intpp2_fsi(pjp, pj1, pj2, pj3, ibminfo, number);
-	    }
-	  } else  if ((int)(nvertpc[triangles[0][i]] +0.5) != 3 &&
-		      (int)(nvertpc[triangles[1][i]] +0.5) == 3 &&
-		      (int)(nvertpc[triangles[2][i]] +0.5) == 3) {
-	    ibminfo[number].cr11 = 1.;
-	    ibminfo[number].cr22 = 0.;
-	    ibminfo[number].cr33 = 0.;
-	    if (fabs(nfxt) >= fabs(nfyt) && fabs(nfxt)>= fabs(nfzt)) {
-	      pjp.x = pint.y; pjp.y = pint.z;
-	      pj1.x = p1.y;   pj1.y = p1.z;
-	      pj2.x = p2.y;   pj2.y = p2.z;
-	      pj3.x = p3.y;   pj3.y = p3.z;
-	      triangle_intp2_fsi(pjp, pj1, pj2, pj3, ibminfo, number);
-	    }
-	    else if (fabs(nfyt) >= fabs(nfxt) && fabs(nfyt)>= fabs(nfzt)) {
-	      pjp.x = pint.x; pjp.y = pint.z;
-	      pj1.x = p1.x;   pj1.y = p1.z;
-	      pj2.x = p2.x;   pj2.y = p2.z;
-	      pj3.x = p3.x;   pj3.y = p3.z;
-	      triangle_intp2_fsi(pjp, pj1, pj2, pj3, ibminfo, number);
-	    }
-	    else if (fabs(nfzt) >= fabs(nfyt) && fabs(nfzt)>= fabs(nfxt)) {
-	      pjp.x = pint.y; pjp.y = pint.x;
-	      pj1.x = p1.y;   pj1.y = p1.x;
-	      pj2.x = p2.y;   pj2.y = p2.x;
-	      pj3.x = p3.y;   pj3.y = p3.x;
-	      triangle_intp2_fsi(pjp, pj1, pj2, pj3, ibminfo, number);
-	    }
-	  } else  if ((int)(nvertpc[triangles[0][i]] +0.5) == 3 &&
-		      (int)(nvertpc[triangles[1][i]] +0.5) != 3 &&
-		      (int)(nvertpc[triangles[2][i]] +0.5) == 3) {
-	    ibminfo[number].cr11 = 0.;
-	    ibminfo[number].cr22 = 1.;
-	    ibminfo[number].cr33 = 0.;
-	    if (fabs(nfxt) >= fabs(nfyt) && fabs(nfxt)>= fabs(nfzt)) {
-	      pjp.x = pint.y; pjp.y = pint.z;
-	      pj1.x = p1.y;   pj1.y = p1.z;
-	      pj2.x = p2.y;   pj2.y = p2.z;
-	      pj3.x = p3.y;   pj3.y = p3.z;
-	      triangle_intp2_fsi(pjp, pj1, pj2, pj3, ibminfo, number);
-	    }
-	    else if (fabs(nfyt) >= fabs(nfxt) && fabs(nfyt)>= fabs(nfzt)) {
-	      pjp.x = pint.x; pjp.y = pint.z;
-	      pj1.x = p1.x;   pj1.y = p1.z;
-	      pj2.x = p2.x;   pj2.y = p2.z;
-	      pj3.x = p3.x;   pj3.y = p3.z;
-	      triangle_intp2_fsi(pjp, pj1, pj2, pj3, ibminfo, number);
-	    }
-	    else if (fabs(nfzt) >= fabs(nfyt) && fabs(nfzt)>= fabs(nfxt)) {
-	      pjp.x = pint.y; pjp.y = pint.x;
-	      pj1.x = p1.y;   pj1.y = p1.x;
-	      pj2.x = p2.y;   pj2.y = p2.x;
-	      pj3.x = p3.y;   pj3.y = p3.x;
-	      triangle_intp2_fsi(pjp, pj1, pj2, pj3, ibminfo, number);
-	    }
-	  } else  if ((int)(nvertpc[triangles[0][i]] +0.5) == 3 &&
-		      (int)(nvertpc[triangles[1][i]] +0.5) == 3 &&
-		      (int)(nvertpc[triangles[2][i]] +0.5) != 3) {
-	    ibminfo[number].cr11 = 0.;
-	    ibminfo[number].cr22 = 0.;
-	    ibminfo[number].cr33 = 1.;
-	    if (fabs(nfxt) >= fabs(nfyt) && fabs(nfxt)>= fabs(nfzt)) {
-	      pjp.x = pint.y; pjp.y = pint.z;
-	      pj1.x = p1.y;   pj1.y = p1.z;
-	      pj2.x = p2.y;   pj2.y = p2.z;
-	      pj3.x = p3.y;   pj3.y = p3.z;
-	      triangle_intp2_fsi(pjp, pj1, pj2, pj3, ibminfo, number);
-	    }
-	    else if (fabs(nfyt) >= fabs(nfxt) && fabs(nfyt)>= fabs(nfzt)) {
-	      pjp.x = pint.x; pjp.y = pint.z;
-	      pj1.x = p1.x;   pj1.y = p1.z;
-	      pj2.x = p2.x;   pj2.y = p2.z;
-	      pj3.x = p3.x;   pj3.y = p3.z;
-	      triangle_intp2_fsi(pjp, pj1, pj2, pj3, ibminfo, number);
-	    }
-	    else if (fabs(nfzt) >= fabs(nfyt) && fabs(nfzt)>= fabs(nfxt)) {
-	      pjp.x = pint.y; pjp.y = pint.x;
-	      pj1.x = p1.y;   pj1.y = p1.x;
-	      pj2.x = p2.y;   pj2.y = p2.x;
-	      pj3.x = p3.y;   pj3.y = p3.x;
-	      triangle_intp2_fsi(pjp, pj1, pj2, pj3, ibminfo, number);
-	    }
-	  } else {
-	    PetscPrintf(PETSC_COMM_WORLD, "%Something Wrong! All host nodes are blanked!!!!!\n");
-	    return(1);
-	  }
+		  } else  if ((int)(nvertpc[triangles[0][i]] +0.5) != 3 &&
+				  (int)(nvertpc[triangles[1][i]] +0.5) != 3 &&
+				  (int)(nvertpc[triangles[2][i]] +0.5) == 3) {
+			if (fabs(nfxt) >= fabs(nfyt) && fabs(nfxt)>= fabs(nfzt)) {
+			  pjp.x = pint.y; pjp.y = pint.z;
+			  pj1.x = p1.y;   pj1.y = p1.z;
+			  pj2.x = p2.y;   pj2.y = p2.z;
+			  pj3.x = p3.y;   pj3.y = p3.z;
+			  linear_intpp(pjp, pj1, pj2, ibminfo, number,3);
+			  triangle_intpp2_fsi(pjp, pj1, pj2, pj3, ibminfo, number);
+			}
+			else if (fabs(nfyt) >= fabs(nfxt) && fabs(nfyt)>= fabs(nfzt)) {
+			  pjp.x = pint.x; pjp.y = pint.z;
+			  pj1.x = p1.x;   pj1.y = p1.z;
+			  pj2.x = p2.x;   pj2.y = p2.z;
+			  pj3.x = p3.x;   pj3.y = p3.z;
+			  linear_intpp(pjp, pj1, pj2, ibminfo, number,3);
+			  triangle_intpp2_fsi(pjp, pj1, pj2, pj3, ibminfo, number);
+			}
+			else if (fabs(nfzt) >= fabs(nfyt) && fabs(nfzt)>= fabs(nfxt)) {
+			  pjp.x = pint.y; pjp.y = pint.x;
+			  pj1.x = p1.y;   pj1.y = p1.x;
+			  pj2.x = p2.y;   pj2.y = p2.x;
+			  pj3.x = p3.y;   pj3.y = p3.x;
+			  linear_intpp(pjp, pj1, pj2, ibminfo,number,3);
+			  triangle_intpp2_fsi(pjp, pj1, pj2, pj3, ibminfo, number);
+			}
+		  } else  if ((int)(nvertpc[triangles[0][i]] +0.5) != 3 &&
+				  (int)(nvertpc[triangles[1][i]] +0.5) == 3 &&
+				  (int)(nvertpc[triangles[2][i]] +0.5) == 3) {
+			ibminfo[number].cr11 = 1.;
+			ibminfo[number].cr22 = 0.;
+			ibminfo[number].cr33 = 0.;
+			if (fabs(nfxt) >= fabs(nfyt) && fabs(nfxt)>= fabs(nfzt)) {
+			  pjp.x = pint.y; pjp.y = pint.z;
+			  pj1.x = p1.y;   pj1.y = p1.z;
+			  pj2.x = p2.y;   pj2.y = p2.z;
+			  pj3.x = p3.y;   pj3.y = p3.z;
+			  triangle_intp2_fsi(pjp, pj1, pj2, pj3, ibminfo, number);
+			}
+			else if (fabs(nfyt) >= fabs(nfxt) && fabs(nfyt)>= fabs(nfzt)) {
+			  pjp.x = pint.x; pjp.y = pint.z;
+			  pj1.x = p1.x;   pj1.y = p1.z;
+			  pj2.x = p2.x;   pj2.y = p2.z;
+			  pj3.x = p3.x;   pj3.y = p3.z;
+			  triangle_intp2_fsi(pjp, pj1, pj2, pj3, ibminfo, number);
+			}
+			else if (fabs(nfzt) >= fabs(nfyt) && fabs(nfzt)>= fabs(nfxt)) {
+			  pjp.x = pint.y; pjp.y = pint.x;
+			  pj1.x = p1.y;   pj1.y = p1.x;
+			  pj2.x = p2.y;   pj2.y = p2.x;
+			  pj3.x = p3.y;   pj3.y = p3.x;
+			  triangle_intp2_fsi(pjp, pj1, pj2, pj3, ibminfo, number);
+			}
+		  } else  if ((int)(nvertpc[triangles[0][i]] +0.5) == 3 &&
+				  (int)(nvertpc[triangles[1][i]] +0.5) != 3 &&
+				  (int)(nvertpc[triangles[2][i]] +0.5) == 3) {
+			ibminfo[number].cr11 = 0.;
+			ibminfo[number].cr22 = 1.;
+			ibminfo[number].cr33 = 0.;
+			if (fabs(nfxt) >= fabs(nfyt) && fabs(nfxt)>= fabs(nfzt)) {
+			  pjp.x = pint.y; pjp.y = pint.z;
+			  pj1.x = p1.y;   pj1.y = p1.z;
+			  pj2.x = p2.y;   pj2.y = p2.z;
+			  pj3.x = p3.y;   pj3.y = p3.z;
+			  triangle_intp2_fsi(pjp, pj1, pj2, pj3, ibminfo, number);
+			}
+			else if (fabs(nfyt) >= fabs(nfxt) && fabs(nfyt)>= fabs(nfzt)) {
+			  pjp.x = pint.x; pjp.y = pint.z;
+			  pj1.x = p1.x;   pj1.y = p1.z;
+			  pj2.x = p2.x;   pj2.y = p2.z;
+			  pj3.x = p3.x;   pj3.y = p3.z;
+			  triangle_intp2_fsi(pjp, pj1, pj2, pj3, ibminfo, number);
+			}
+			else if (fabs(nfzt) >= fabs(nfyt) && fabs(nfzt)>= fabs(nfxt)) {
+			  pjp.x = pint.y; pjp.y = pint.x;
+			  pj1.x = p1.y;   pj1.y = p1.x;
+			  pj2.x = p2.y;   pj2.y = p2.x;
+			  pj3.x = p3.y;   pj3.y = p3.x;
+			  triangle_intp2_fsi(pjp, pj1, pj2, pj3, ibminfo, number);
+			}
+		  } else  if ((int)(nvertpc[triangles[0][i]] +0.5) == 3 &&
+				  (int)(nvertpc[triangles[1][i]] +0.5) == 3 &&
+				  (int)(nvertpc[triangles[2][i]] +0.5) != 3) {
+			ibminfo[number].cr11 = 0.;
+			ibminfo[number].cr22 = 0.;
+			ibminfo[number].cr33 = 1.;
+			if (fabs(nfxt) >= fabs(nfyt) && fabs(nfxt)>= fabs(nfzt)) {
+			  pjp.x = pint.y; pjp.y = pint.z;
+			  pj1.x = p1.y;   pj1.y = p1.z;
+			  pj2.x = p2.y;   pj2.y = p2.z;
+			  pj3.x = p3.y;   pj3.y = p3.z;
+			  triangle_intp2_fsi(pjp, pj1, pj2, pj3, ibminfo, number);
+			}
+			else if (fabs(nfyt) >= fabs(nfxt) && fabs(nfyt)>= fabs(nfzt)) {
+			  pjp.x = pint.x; pjp.y = pint.z;
+			  pj1.x = p1.x;   pj1.y = p1.z;
+			  pj2.x = p2.x;   pj2.y = p2.z;
+			  pj3.x = p3.x;   pj3.y = p3.z;
+			  triangle_intp2_fsi(pjp, pj1, pj2, pj3, ibminfo, number);
+			}
+			else if (fabs(nfzt) >= fabs(nfyt) && fabs(nfzt)>= fabs(nfxt)) {
+			  pjp.x = pint.y; pjp.y = pint.x;
+			  pj1.x = p1.y;   pj1.y = p1.x;
+			  pj2.x = p2.y;   pj2.y = p2.x;
+			  pj3.x = p3.y;   pj3.y = p3.x;
+			  triangle_intp2_fsi(pjp, pj1, pj2, pj3, ibminfo, number);
+			}
+		  } else {
+			PetscPrintf(PETSC_COMM_WORLD, "%Something Wrong! All host nodes are blanked!!!!!\n");
+			return(1);
+		  }
 
-	  ibminfo[number].d_ii = sqrt((pint.x-p.x)*(pint.x - p.x) + (pint.y-p.y) *
-				     (pint.y-p.y) + (pint.z - p.z)* (pint.z - p.z));
-	  ibminfo[number].iimode = cell;
+		  ibminfo[number].d_ii = sqrt((pint.x-p.x)*(pint.x - p.x) + (pint.y-p.y) *
+						 (pint.y-p.y) + (pint.z - p.z)* (pint.z - p.z));
+		  ibminfo[number].iimode = cell;
 
-	  if (ibminfo[number].cr11<1e-6 &&
-	      ibminfo[number].cr22<1e-6 &&
-	      ibminfo[number].cr33<1e-6)
-	    PetscPrintf(PETSC_COMM_SELF, "0 fsi Coeff!!!! %d  %d %le %le %le %le \n", number, ibminfo[number].iimode,ibminfo[number].d_ii, nvertpc[triangles[0][i]],nvertpc[triangles[1][i]],nvertpc[triangles[2][i]]);
+		  if (ibminfo[number].cr11<1e-6 &&
+			  ibminfo[number].cr22<1e-6 &&
+			  ibminfo[number].cr33<1e-6)
+			PetscPrintf(PETSC_COMM_SELF, "0 fsi Coeff!!!! %d  %d %le %le %le %le \n", number, ibminfo[number].iimode,ibminfo[number].d_ii, nvertpc[triangles[0][i]],nvertpc[triangles[1][i]],nvertpc[triangles[2][i]]);
 
-	  return (0);
-	}
+		  return (0);
+		}
       }
     }
   }
@@ -1502,12 +2203,24 @@ PetscErrorCode Find_fsi_interp_Coeff2(IBMInfo *ibminfo, UserCtx *user, IBMNodes 
   PetscInt	zs = info.zs, ze = info.zs + info.zm;
   PetscInt	mx = info.mx, my = info.my, mz = info.mz;
   PetscInt	i, j, k;
+  PetscInt      lxs, lxe, lys, lye, lzs, lze;
 
   PetscInt      n_elmt = ibm->n_elmt;
   PetscInt      elmt, ip[8],jp[8],kp[8];
   Cmpnts        ***coor,pc[8],p;
   PetscReal	***nvert,nvertpc[8];
   PetscReal     nfx,nfy,nfz;
+
+	lxs = xs; lxe = xe;
+	lys = ys; lye = ye;
+	lzs = zs; lze = ze;
+
+	if (xs==0) lxs = xs+1; 
+	if (ys==0) lys = ys+1; 
+	if (zs==0) lzs = zs+1; 
+	if (xe==mx) lxe = xe-2; 
+	if (ye==my) lye = ye-2; 
+	if (ze==mz) lze = ze-2;
 
   PetscInt	rank;
   MPI_Comm_rank(PETSC_COMM_WORLD, &rank);
@@ -1516,7 +2229,7 @@ PetscErrorCode Find_fsi_interp_Coeff2(IBMInfo *ibminfo, UserCtx *user, IBMNodes 
   DAVecGetArray(da, user->lNvert, &nvert);
 
   for (elmt=0; elmt<n_elmt; elmt++) {
-  if (elmtinfo[elmt].n_P>0 && elmtinfo[elmt].FoundAroundcell>0) {
+  if (elmtinfo[elmt].n_P>0 && elmtinfo[elmt].FoundAroundcell==1) {
     //p=ibm->cent[elmt];
     p.x=ibm->cent_x[elmt]; 
     p.y=ibm->cent_y[elmt]; 
@@ -1554,8 +2267,8 @@ PetscErrorCode Find_fsi_interp_Coeff2(IBMInfo *ibminfo, UserCtx *user, IBMNodes 
 /*     if (k==mz-2) { */
 /*       nfz=-0.0001*PetscSign(coor[k][j][i].z-coor[k-1][j][i].z); */
 /*     } */
-
-    if (i>=xs && i<xe && j>=ys && j<ye && k>=zs && k<ze) {
+	//if (i>=xs && i<xe && j>=ys && j<ye && k>=zs && k<ze) {
+    if (i>=lxs && i<lxe && j>=ys && j<lye && k>=zs && k<lze) {
 
       pc[0] = coor[k  ][j  ][i  ];
       pc[1] = coor[k  ][j  ][i+1];
@@ -1586,85 +2299,83 @@ PetscErrorCode Find_fsi_interp_Coeff2(IBMInfo *ibminfo, UserCtx *user, IBMNodes 
       kp[6]=k+1;jp[6]=j+1;ip[6]=i+1;
       kp[7]=k+1;jp[7]=j+1;ip[7]=i  ;
 
-      fsi_InterceptionPoint2(p,pc,nvertpc, nfx, nfy,
-	      nfz, ibminfo, elmt);
+      fsi_InterceptionPoint2(p,pc,nvertpc, nfx, nfy, nfz, ibminfo, elmt);
 
       switch (ibminfo[elmt].iimode) {
-      case(0): {
-	ibminfo[elmt].i11=ip[0]; ibminfo[elmt].j11 = jp[0]; ibminfo[elmt].k11 = kp[0];
-	ibminfo[elmt].i22=ip[1]; ibminfo[elmt].j22 = jp[1]; ibminfo[elmt].k22 = kp[1];
-	ibminfo[elmt].i33=ip[3]; ibminfo[elmt].j33 = jp[3]; ibminfo[elmt].k33 = kp[3];
-	break;
+		  case(0): {
+		ibminfo[elmt].i11=ip[0]; ibminfo[elmt].j11 = jp[0]; ibminfo[elmt].k11 = kp[0];
+		ibminfo[elmt].i22=ip[1]; ibminfo[elmt].j22 = jp[1]; ibminfo[elmt].k22 = kp[1];
+		ibminfo[elmt].i33=ip[3]; ibminfo[elmt].j33 = jp[3]; ibminfo[elmt].k33 = kp[3];
+		break;
+		  }
+		  case (1): {
+		ibminfo[elmt].i11=ip[1]; ibminfo[elmt].j11 = jp[1]; ibminfo[elmt].k11 = kp[1];
+		ibminfo[elmt].i22=ip[2]; ibminfo[elmt].j22 = jp[2]; ibminfo[elmt].k22 = kp[2];
+		ibminfo[elmt].i33=ip[3]; ibminfo[elmt].j33 = jp[3]; ibminfo[elmt].k33 = kp[3];
+		break;
+		  }
+		  case (2): {
+		ibminfo[elmt].i11=ip[4]; ibminfo[elmt].j11 = jp[4]; ibminfo[elmt].k11 = kp[4];
+		ibminfo[elmt].i22=ip[5]; ibminfo[elmt].j22 = jp[5]; ibminfo[elmt].k22 = kp[5];
+		ibminfo[elmt].i33=ip[7]; ibminfo[elmt].j33 = jp[7]; ibminfo[elmt].k33 = kp[7];
+		break;
+		  }
+		  case (3): {
+		ibminfo[elmt].i11=ip[5]; ibminfo[elmt].j11 = jp[5]; ibminfo[elmt].k11 = kp[5];
+		ibminfo[elmt].i22=ip[6]; ibminfo[elmt].j22 = jp[6]; ibminfo[elmt].k22 = kp[6];
+		ibminfo[elmt].i33=ip[7]; ibminfo[elmt].j33 = jp[7]; ibminfo[elmt].k33 = kp[7];
+		break;
+		  }
+		  case (4): {
+		ibminfo[elmt].i11=ip[0]; ibminfo[elmt].j11 = jp[0]; ibminfo[elmt].k11 = kp[0];
+		ibminfo[elmt].i22=ip[7]; ibminfo[elmt].j22 = jp[7]; ibminfo[elmt].k22 = kp[7];
+		ibminfo[elmt].i33=ip[3]; ibminfo[elmt].j33 = jp[3]; ibminfo[elmt].k33 = kp[3];
+		break;
+		  }
+		  case (5): {
+		ibminfo[elmt].i11=ip[0]; ibminfo[elmt].j11 = jp[0]; ibminfo[elmt].k11 = kp[0];
+		ibminfo[elmt].i22=ip[4]; ibminfo[elmt].j22 = jp[4]; ibminfo[elmt].k22 = kp[4];
+		ibminfo[elmt].i33=ip[7]; ibminfo[elmt].j33 = jp[7]; ibminfo[elmt].k33 = kp[7];
+		break;
+		  }
+		  case (6): {
+		ibminfo[elmt].i11=ip[1]; ibminfo[elmt].j11 = jp[1]; ibminfo[elmt].k11 = kp[1];
+		ibminfo[elmt].i22=ip[5]; ibminfo[elmt].j22 = jp[5]; ibminfo[elmt].k22 = kp[5];
+		ibminfo[elmt].i33=ip[6]; ibminfo[elmt].j33 = jp[6]; ibminfo[elmt].k33 = kp[6];
+		break;
+		  }
+		  case (7): {
+		ibminfo[elmt].i11=ip[2]; ibminfo[elmt].j11 = jp[2]; ibminfo[elmt].k11 = kp[2];
+		ibminfo[elmt].i22=ip[6]; ibminfo[elmt].j22 = jp[6]; ibminfo[elmt].k22 = kp[6];
+		ibminfo[elmt].i33=ip[1]; ibminfo[elmt].j33 = jp[1]; ibminfo[elmt].k33 = kp[1];
+		break;
+		  }
+		  case (8): {
+		ibminfo[elmt].i11=ip[0]; ibminfo[elmt].j11 = jp[0]; ibminfo[elmt].k11 = kp[0];
+		ibminfo[elmt].i22=ip[5]; ibminfo[elmt].j22 = jp[5]; ibminfo[elmt].k22 = kp[5];
+		ibminfo[elmt].i33=ip[1]; ibminfo[elmt].j33 = jp[1]; ibminfo[elmt].k33 = kp[1];
+		break;
+		  }
+		  case (9): {
+		ibminfo[elmt].i11=ip[0]; ibminfo[elmt].j11 = jp[0]; ibminfo[elmt].k11 = kp[0];
+		ibminfo[elmt].i22=ip[4]; ibminfo[elmt].j22 = jp[4]; ibminfo[elmt].k22 = kp[4];
+		ibminfo[elmt].i33=ip[5]; ibminfo[elmt].j33 = jp[5]; ibminfo[elmt].k33 = kp[5];
+		break;
+		  }
+		  case (10): {
+		ibminfo[elmt].i11=ip[3]; ibminfo[elmt].j11 = jp[3]; ibminfo[elmt].k11 = kp[3];
+		ibminfo[elmt].i22=ip[7]; ibminfo[elmt].j22 = jp[7]; ibminfo[elmt].k22 = kp[7];
+		ibminfo[elmt].i33=ip[6]; ibminfo[elmt].j33 = jp[6]; ibminfo[elmt].k33 = kp[6];
+		break;
+		  }
+		  case (11): {
+		ibminfo[elmt].i11=ip[2]; ibminfo[elmt].j11 = jp[2]; ibminfo[elmt].k11 = kp[2];
+		ibminfo[elmt].i22=ip[3]; ibminfo[elmt].j22 = jp[3]; ibminfo[elmt].k22 = kp[3];
+		ibminfo[elmt].i33=ip[6]; ibminfo[elmt].j33 = jp[6]; ibminfo[elmt].k33 = kp[6];
+		break;
+		  }
       }
-      case (1): {
-	ibminfo[elmt].i11=ip[1]; ibminfo[elmt].j11 = jp[1]; ibminfo[elmt].k11 = kp[1];
-	ibminfo[elmt].i22=ip[2]; ibminfo[elmt].j22 = jp[2]; ibminfo[elmt].k22 = kp[2];
-	ibminfo[elmt].i33=ip[3]; ibminfo[elmt].j33 = jp[3]; ibminfo[elmt].k33 = kp[3];
-	break;
-      }
-      case (2): {
-	ibminfo[elmt].i11=ip[4]; ibminfo[elmt].j11 = jp[4]; ibminfo[elmt].k11 = kp[4];
-	ibminfo[elmt].i22=ip[5]; ibminfo[elmt].j22 = jp[5]; ibminfo[elmt].k22 = kp[5];
-	ibminfo[elmt].i33=ip[7]; ibminfo[elmt].j33 = jp[7]; ibminfo[elmt].k33 = kp[7];
-	break;
-      }
-      case (3): {
-	ibminfo[elmt].i11=ip[5]; ibminfo[elmt].j11 = jp[5]; ibminfo[elmt].k11 = kp[5];
-	ibminfo[elmt].i22=ip[6]; ibminfo[elmt].j22 = jp[6]; ibminfo[elmt].k22 = kp[6];
-	ibminfo[elmt].i33=ip[7]; ibminfo[elmt].j33 = jp[7]; ibminfo[elmt].k33 = kp[7];
-	break;
-      }
-      case (4): {
-	ibminfo[elmt].i11=ip[0]; ibminfo[elmt].j11 = jp[0]; ibminfo[elmt].k11 = kp[0];
-	ibminfo[elmt].i22=ip[7]; ibminfo[elmt].j22 = jp[7]; ibminfo[elmt].k22 = kp[7];
-	ibminfo[elmt].i33=ip[3]; ibminfo[elmt].j33 = jp[3]; ibminfo[elmt].k33 = kp[3];
-	break;
-      }
-      case (5): {
-	ibminfo[elmt].i11=ip[0]; ibminfo[elmt].j11 = jp[0]; ibminfo[elmt].k11 = kp[0];
-	ibminfo[elmt].i22=ip[4]; ibminfo[elmt].j22 = jp[4]; ibminfo[elmt].k22 = kp[4];
-	ibminfo[elmt].i33=ip[7]; ibminfo[elmt].j33 = jp[7]; ibminfo[elmt].k33 = kp[7];
-	break;
-      }
-      case (6): {
-	ibminfo[elmt].i11=ip[1]; ibminfo[elmt].j11 = jp[1]; ibminfo[elmt].k11 = kp[1];
-	ibminfo[elmt].i22=ip[5]; ibminfo[elmt].j22 = jp[5]; ibminfo[elmt].k22 = kp[5];
-	ibminfo[elmt].i33=ip[6]; ibminfo[elmt].j33 = jp[6]; ibminfo[elmt].k33 = kp[6];
-	break;
-      }
-      case (7): {
-	ibminfo[elmt].i11=ip[2]; ibminfo[elmt].j11 = jp[2]; ibminfo[elmt].k11 = kp[2];
-	ibminfo[elmt].i22=ip[6]; ibminfo[elmt].j22 = jp[6]; ibminfo[elmt].k22 = kp[6];
-	ibminfo[elmt].i33=ip[1]; ibminfo[elmt].j33 = jp[1]; ibminfo[elmt].k33 = kp[1];
-	break;
-      }
-      case (8): {
-	ibminfo[elmt].i11=ip[0]; ibminfo[elmt].j11 = jp[0]; ibminfo[elmt].k11 = kp[0];
-	ibminfo[elmt].i22=ip[5]; ibminfo[elmt].j22 = jp[5]; ibminfo[elmt].k22 = kp[5];
-	ibminfo[elmt].i33=ip[1]; ibminfo[elmt].j33 = jp[1]; ibminfo[elmt].k33 = kp[1];
-	break;
-      }
-      case (9): {
-	ibminfo[elmt].i11=ip[0]; ibminfo[elmt].j11 = jp[0]; ibminfo[elmt].k11 = kp[0];
-	ibminfo[elmt].i22=ip[4]; ibminfo[elmt].j22 = jp[4]; ibminfo[elmt].k22 = kp[4];
-	ibminfo[elmt].i33=ip[5]; ibminfo[elmt].j33 = jp[5]; ibminfo[elmt].k33 = kp[5];
-	break;
-      }
-      case (10): {
-	ibminfo[elmt].i11=ip[3]; ibminfo[elmt].j11 = jp[3]; ibminfo[elmt].k11 = kp[3];
-	ibminfo[elmt].i22=ip[7]; ibminfo[elmt].j22 = jp[7]; ibminfo[elmt].k22 = kp[7];
-	ibminfo[elmt].i33=ip[6]; ibminfo[elmt].j33 = jp[6]; ibminfo[elmt].k33 = kp[6];
-	break;
-      }
-      case (11): {
-	ibminfo[elmt].i11=ip[2]; ibminfo[elmt].j11 = jp[2]; ibminfo[elmt].k11 = kp[2];
-	ibminfo[elmt].i22=ip[3]; ibminfo[elmt].j22 = jp[3]; ibminfo[elmt].k22 = kp[3];
-	ibminfo[elmt].i33=ip[6]; ibminfo[elmt].j33 = jp[6]; ibminfo[elmt].k33 = kp[6];
-	break;
-      }
-      }
-      if (ibminfo[elmt].iimode<0) 
-	PetscPrintf(PETSC_COMM_SELF, "FSI Interpolation Coeffients Were not Found!!!! %d  %d %le \n", elmt, ibminfo[elmt].imode,ibminfo[elmt].d_i);
+      if (ibminfo[elmt].iimode<0) PetscPrintf(PETSC_COMM_SELF, "FSI Interpolation Coeffients Were not Found in 2!!!! %d  %d %le \n", elmt, ibminfo[elmt].imode,ibminfo[elmt].d_i);
       //PetscPrintf(PETSC_COMM_SELF, "FSI Interpolatoion host %d  %d  %d \n", ibminfo[elmt].i1,ibminfo[elmt].j1,ibminfo[elmt].k1);
 
     }
@@ -1693,9 +2404,9 @@ PetscErrorCode triangle_2nd_intp_fsi(Cpt2D p, Cpt2D p1, Cpt2D p2, Cpt2D p3,
   return(0);
 }
 
-PetscErrorCode fsi_2nd_InterceptionPoint(Cmpnts p, Cmpnts pc[8], 
+PetscErrorCode fsi_2nd_InterceptionPoint(Cmpnts p, Cmpnts pc[8], PetscReal nvertpc[8],
 	       PetscReal nfx, PetscReal nfy, PetscReal nfz, 
-	       IBMInfo *ibminfo, PetscInt number, Cmpnts *intp)
+	       IBMInfo *ibminfo, PetscInt number, Cmpnts *intp, Cmpnts pOriginal)
 {
   PetscInt 	triangles[3][12];
   Cmpnts   	p1, p2, p3;
@@ -1747,77 +2458,69 @@ PetscErrorCode fsi_2nd_InterceptionPoint(Cmpnts p, Cmpnts pc[8],
       
 
       if (d>0) {
-	pint.x = p.x + d * nfx;
-	pint.y = p.y + d * nfy;
-	pint.z = p.z + d * nfz;
+		pint.x = p.x + d * nfx;
+		pint.y = p.y + d * nfy;
+		pint.z = p.z + d * nfz;
 
-	rx1 = p2.x - p1.x; ry1 = p2.y - p1.y; rz1 = p2.z - p1.z;
-	rx2 = p3.x - p1.x; ry2 = p3.y - p1.y; rz2 = p3.z - p1.z;
-      
-	nfxt = ry1 * rz2 - rz1 * ry2;
-	nfyt = -rx1 * rz2 + rz1 * rx2;
-	nfzt = rx1 * ry2 - ry1 * rx2;
+		rx1 = p2.x - p1.x; ry1 = p2.y - p1.y; rz1 = p2.z - p1.z;
+		rx2 = p3.x - p1.x; ry2 = p3.y - p1.y; rz2 = p3.z - p1.z;
+		  
+		nfxt = ry1 * rz2 - rz1 * ry2;
+		nfyt = -rx1 * rz2 + rz1 * rx2;
+		nfzt = rx1 * ry2 - ry1 * rx2;
 
-	flag = ISPointInTriangle(pint, p1, p2, p3, nfxt, nfyt, nfzt);
-	if (flag >= 0) {
-	  cell = i;
+		flag = ISPointInTriangle(pint, p1, p2, p3, nfxt, nfyt, nfzt);
+		if (flag >= 0) {
+		  cell = i;
 
-	  /*	  if (flagprint==1) {
-	    PetscPrintf(PETSC_COMM_WORLD, "%e %e %e %e \n", pint.x, pint.y, pint.z, d);
-	    PetscPrintf(PETSC_COMM_WORLD, "%e %e %e\n", nfx, nfy, nfz);
-	    PetscPrintf(PETSC_COMM_WORLD, "%e %e %e\n", p2.x, p2.y, p2.z);
-	    PetscPrintf(PETSC_COMM_WORLD, "%e %e %e\n", p3.x, p3.y, p3.z);
-	    }*/
+		  /*	  if (flagprint==1) {
+			PetscPrintf(PETSC_COMM_WORLD, "%e %e %e %e \n", pint.x, pint.y, pint.z, d);
+			PetscPrintf(PETSC_COMM_WORLD, "%e %e %e\n", nfx, nfy, nfz);
+			PetscPrintf(PETSC_COMM_WORLD, "%e %e %e\n", p2.x, p2.y, p2.z);
+			PetscPrintf(PETSC_COMM_WORLD, "%e %e %e\n", p3.x, p3.y, p3.z);
+			}*/
 
-	  // Calculate the interpolatin Coefficients
-	  
-	  if (fabs(nfxt) >= fabs(nfyt) && fabs(nfxt)>= fabs(nfzt)) {
-	    pjp.x = pint.y; pjp.y = pint.z;
-	    pj1.x = p1.y;   pj1.y = p1.z;
-	    pj2.x = p2.y;   pj2.y = p2.z;
-	    pj3.x = p3.y;   pj3.y = p3.z;
-	    triangle_2nd_intp_fsi(pjp, pj1, pj2, pj3, ibminfo, number);
-	  }
-	  else if (fabs(nfyt) >= fabs(nfxt) && fabs(nfyt)>= fabs(nfzt)) {
-	    pjp.x = pint.x; pjp.y = pint.z;
-	    pj1.x = p1.x;   pj1.y = p1.z;
-	    pj2.x = p2.x;   pj2.y = p2.z;
-	    pj3.x = p3.x;   pj3.y = p3.z;
-	    triangle_2nd_intp_fsi(pjp, pj1, pj2, pj3, ibminfo, number);
-	  }
-	  else if (fabs(nfzt) >= fabs(nfyt) && fabs(nfzt)>= fabs(nfxt)) {
-	    pjp.x = pint.y; pjp.y = pint.x;
-	    pj1.x = p1.y;   pj1.y = p1.x;
-	    pj2.x = p2.y;   pj2.y = p2.x;
-	    pj3.x = p3.y;   pj3.y = p3.x;
-	    triangle_2nd_intp_fsi(pjp, pj1, pj2, pj3, ibminfo,number);
-	  }
-	  
-	  ibminfo[number].d_s = sqrt((pint.x-p.x)*(pint.x - p.x) + (pint.y-p.y) *
-				     (pint.y-p.y) + (pint.z - p.z)* (pint.z - p.z));
-	  ibminfo[number].smode = cell;
+		  // Calculate the interpolation Coefficients
+		  
+		  if (fabs(nfxt) >= fabs(nfyt) && fabs(nfxt)>= fabs(nfzt)) {
+			pjp.x = pint.y; pjp.y = pint.z;
+			pj1.x = p1.y;   pj1.y = p1.z;
+			pj2.x = p2.y;   pj2.y = p2.z;
+			pj3.x = p3.y;   pj3.y = p3.z;
+			triangle_2nd_intp_fsi(pjp, pj1, pj2, pj3, ibminfo, number);
+		  }
+		  else if (fabs(nfyt) >= fabs(nfxt) && fabs(nfyt)>= fabs(nfzt)) {
+			pjp.x = pint.x; pjp.y = pint.z;
+			pj1.x = p1.x;   pj1.y = p1.z;
+			pj2.x = p2.x;   pj2.y = p2.z;
+			pj3.x = p3.x;   pj3.y = p3.z;
+			triangle_2nd_intp_fsi(pjp, pj1, pj2, pj3, ibminfo, number);
+		  }
+		  else if (fabs(nfzt) >= fabs(nfyt) && fabs(nfzt)>= fabs(nfxt)) {
+			pjp.x = pint.y; pjp.y = pint.x;
+			pj1.x = p1.y;   pj1.y = p1.x;
+			pj2.x = p2.y;   pj2.y = p2.x;
+			pj3.x = p3.y;   pj3.y = p3.x;
+			triangle_2nd_intp_fsi(pjp, pj1, pj2, pj3, ibminfo,number);
+		  }
+		  		  
+		  ibminfo[number].d_s = sqrt((pint.x-pOriginal.x)*(pint.x - pOriginal.x) + (pint.y-pOriginal.y) * (pint.y-pOriginal.y) + (pint.z - pOriginal.z)* (pint.z - pOriginal.z));
+		  ibminfo[number].smode = cell;
 
-	  *intp = pint;
-
-	  if (ibminfo[number].ct1<1e-6 &&
-	      ibminfo[number].ct2<1e-6 &&
-	      ibminfo[number].ct3<1e-6)
-	    PetscPrintf(PETSC_COMM_SELF, "0 fsi Coeff 2nd fsi!!!! %d  %d %le %le %le %le \n", number, ibminfo[number].smode,ibminfo[number].d_s);
-	  
-	  return (0);
-	}
+		  *intp = pint;
+		  
+		  if (ibminfo[number].ct1<1e-6 && ibminfo[number].ct2<1e-6 && ibminfo[number].ct3<1e-6) PetscPrintf(PETSC_COMM_SELF, "0 fsi Coeff 2nd fsi!!!! %d  %d %le %le %le %le \n", number, ibminfo[number].smode,ibminfo[number].d_s);
+		  if (number==672 || number==759)	PetscPrintf(PETSC_COMM_SELF, "ASR C 2nd XXX!!!! elmt=%d; imode=%d; ds=%le; ds=%le; nvert=%e, %e, %e; \n", number, ibminfo[number].smode, ibminfo[number].d_s, ibminfo[number].d_s, nvertpc[triangles[0][i]],nvertpc[triangles[1][i]],nvertpc[triangles[2][i]]);
+		  return (0);
+		}
       }
     }
   }
+  
   return(0);
 }
 
-PetscErrorCode Find_fsi_2nd_interp_Coeff(PetscInt i, PetscInt j,
-					 PetscInt k, PetscInt elmt,
-					 Cmpnts   p,
-					 IBMInfo *ibminfo,
-					 UserCtx *user, 
-					 IBMNodes *ibm)
+PetscErrorCode Find_fsi_2nd_interp_Coeff(PetscInt foundFlag, PetscInt i, PetscInt j, PetscInt k, PetscInt elmt, Cmpnts p, IBMInfo *ibminfo, UserCtx *user, IBMNodes *ibm)
 {
 
 /* Note:  ibminfo returns the interpolation info 
@@ -1829,25 +2532,42 @@ PetscErrorCode Find_fsi_2nd_interp_Coeff(PetscInt i, PetscInt j,
   PetscInt  	ys = info.ys, ye = info.ys + info.ym;
   PetscInt	zs = info.zs, ze = info.zs + info.zm;
   PetscInt	mx = info.mx, my = info.my, mz = info.mz;
+    PetscInt      lxs, lxe, lys, lye, lzs, lze;
+
   //PetscInt	i, j, k;
   PetscInt	i2, j2, k2;
 
   //PetscInt      n_elmt = ibm->n_elmt;
   PetscInt      ip[8],jp[8],kp[8];
   Cmpnts        ***coor,pc[8];
-  Cmpnts        intp;
-  //PetscReal	***nvert,nvertpc[8];
+  Cmpnts        intp, pOriginal;
+  PetscReal	***nvert,nvertpc[8];
   PetscReal     nfx,nfy,nfz;
+  
+  	lxs = xs; lxe = xe;
+	lys = ys; lye = ye;
+	lzs = zs; lze = ze;
+
+	if (xs==0) lxs = xs+1; 
+	if (ys==0) lys = ys+1; 
+	if (zs==0) lzs = zs+1; 
+	if (xe==mx) lxe = xe-2; 
+	if (ye==my) lye = ye-2; 
+	if (ze==mz) lze = ze-2;
 
   PetscInt	rank;
   MPI_Comm_rank(PETSC_COMM_WORLD, &rank);
 
   DAVecGetArray(fda, user->lCent,&coor);
-  //DAVecGetArray(da, user->lNvert, &nvert);
+  DAVecGetArray(da, user->lNvert, &nvert);
 
-  nfx=ibm->nf_x[elmt];
-  nfy=ibm->nf_y[elmt];
-  nfz=ibm->nf_z[elmt];
+	nfx=ibm->nf_x[elmt];
+	nfy=ibm->nf_y[elmt];
+	nfz=ibm->nf_z[elmt];
+
+	pOriginal.x=ibm->cent_x[elmt]; 
+	pOriginal.y=ibm->cent_y[elmt]; 
+	pOriginal.z=ibm->cent_z[elmt]; 
 
     // normal correction for near domain bndry pts
 /*     if (i==1) { */
@@ -1860,137 +2580,153 @@ PetscErrorCode Find_fsi_2nd_interp_Coeff(PetscInt i, PetscInt j,
 
 
   // normal correction for near domain bndry pts
-  
-  if (i>=xs && i<xe && j>=ys && j<ye && k>=zs && k<ze) {
+  //if (i>=xs && i<xe && j>=ys && j<ye && k>=zs && k<ze) {
+  if (i>=lxs && i<lxe && j>=lys && j<lye && k>=lzs && k<lze) {
     
-    pc[0] = coor[k  ][j  ][i  ];
-    pc[1] = coor[k  ][j  ][i+1];
-    pc[2] = coor[k  ][j+1][i+1];
-    pc[3] = coor[k  ][j+1][i  ];
-    
-    pc[4] = coor[k+1][j  ][i  ];
-    pc[5] = coor[k+1][j  ][i+1];
-    pc[6] = coor[k+1][j+1][i+1];
-    pc[7] = coor[k+1][j+1][i  ];
-        
-    kp[0]=k  ;jp[0]=j  ;ip[0]=i  ;
-    kp[1]=k  ;jp[1]=j  ;ip[1]=i+1;
-    kp[2]=k  ;jp[2]=j+1;ip[2]=i+1;
-    kp[3]=k  ;jp[3]=j+1;ip[3]=i  ;
-    kp[4]=k+1;jp[4]=j  ;ip[4]=i  ;
-    kp[5]=k+1;jp[5]=j  ;ip[5]=i+1;
-    kp[6]=k+1;jp[6]=j+1;ip[6]=i+1;
-    kp[7]=k+1;jp[7]=j+1;ip[7]=i  ;
-    
-    fsi_2nd_InterceptionPoint(p,pc, nfx, nfy,
-			      nfz, ibminfo,elmt, &intp);
-    
-    switch (ibminfo[elmt].smode) {
-    case(0): {
-      ibminfo[elmt].ii1=ip[0]; ibminfo[elmt].jj1 = jp[0]; ibminfo[elmt].kk1 = kp[0];
-      ibminfo[elmt].ii2=ip[1]; ibminfo[elmt].jj2 = jp[1]; ibminfo[elmt].kk2 = kp[1];
-      ibminfo[elmt].ii3=ip[2]; ibminfo[elmt].jj3 = jp[2]; ibminfo[elmt].kk3 = kp[2];
-/*       GridCellaround2ndElmt(user,ibm,intp,elmt,k,j,i,&k2,&j2,&i2); */
-/*       Find_fsi_3rd_interp_Coeff(i2,j2,k2,elmt,intp,ibminfo,user,ibm); */
-      break;
-    }
-    case (1): {
-      ibminfo[elmt].ii1=ip[0]; ibminfo[elmt].jj1 = jp[0]; ibminfo[elmt].kk1 = kp[0];
-      ibminfo[elmt].ii2=ip[2]; ibminfo[elmt].jj2 = jp[2]; ibminfo[elmt].kk2 = kp[2];
-      ibminfo[elmt].ii3=ip[3]; ibminfo[elmt].jj3 = jp[3]; ibminfo[elmt].kk3 = kp[3];
-/*       GridCellaround2ndElmt(user,ibm,intp,elmt,k,j,i,&k2,&j2,&i2); */
-/*       Find_fsi_3rd_interp_Coeff(i2,j2,k2,elmt,intp,ibminfo,user,ibm); */
-      break;
-    }
-    case (2): {
-      ibminfo[elmt].ii1=ip[4]; ibminfo[elmt].jj1 = jp[4]; ibminfo[elmt].kk1 = kp[4];
-      ibminfo[elmt].ii2=ip[5]; ibminfo[elmt].jj2 = jp[5]; ibminfo[elmt].kk2 = kp[5];
-      ibminfo[elmt].ii3=ip[6]; ibminfo[elmt].jj3 = jp[6]; ibminfo[elmt].kk3 = kp[6];
-/*       GridCellaround2ndElmt(user,ibm,intp,elmt,k,j,i,&k2,&j2,&i2); */
-/*       Find_fsi_3rd_interp_Coeff(i2,j2,k2,elmt,intp,ibminfo,user,ibm); */
-      break;
-    }
-    case (3): {
-      ibminfo[elmt].ii1=ip[4]; ibminfo[elmt].jj1 = jp[4]; ibminfo[elmt].kk1 = kp[4];
-      ibminfo[elmt].ii2=ip[6]; ibminfo[elmt].jj2 = jp[6]; ibminfo[elmt].kk2 = kp[6];
-      ibminfo[elmt].ii3=ip[7]; ibminfo[elmt].jj3 = jp[7]; ibminfo[elmt].kk3 = kp[7];
-/*       GridCellaround2ndElmt(user,ibm,intp,elmt,k,j,i,&k2,&j2,&i2); */
-/*       Find_fsi_3rd_interp_Coeff(i2,j2,k2,elmt,intp,ibminfo,user,ibm); */
-      break;
-    }
-    case (4): {
-      ibminfo[elmt].ii1=ip[0]; ibminfo[elmt].jj1 = jp[0]; ibminfo[elmt].kk1 = kp[0];
-      ibminfo[elmt].ii2=ip[4]; ibminfo[elmt].jj2 = jp[4]; ibminfo[elmt].kk2 = kp[4];
-      ibminfo[elmt].ii3=ip[3]; ibminfo[elmt].jj3 = jp[3]; ibminfo[elmt].kk3 = kp[3];
-/*       GridCellaround2ndElmt(user,ibm,intp,elmt,k,j,i,&k2,&j2,&i2); */
-/*       Find_fsi_3rd_interp_Coeff(i2,j2,k2,elmt,intp,ibminfo,user,ibm); */
-      break;
-    }
-    case (5): {
-      ibminfo[elmt].ii1=ip[3]; ibminfo[elmt].jj1 = jp[3]; ibminfo[elmt].kk1 = kp[3];
-      ibminfo[elmt].ii2=ip[4]; ibminfo[elmt].jj2 = jp[4]; ibminfo[elmt].kk2 = kp[4];
-      ibminfo[elmt].ii3=ip[7]; ibminfo[elmt].jj3 = jp[7]; ibminfo[elmt].kk3 = kp[7];
-/*       GridCellaround2ndElmt(user,ibm,intp,elmt,k,j,i,&k2,&j2,&i2); */
-/*       Find_fsi_3rd_interp_Coeff(i2,j2,k2,elmt,intp,ibminfo,user,ibm); */
-      break;
-    }
-    case (6): {
-      ibminfo[elmt].ii1=ip[1]; ibminfo[elmt].jj1 = jp[1]; ibminfo[elmt].kk1 = kp[1];
-      ibminfo[elmt].ii2=ip[5]; ibminfo[elmt].jj2 = jp[5]; ibminfo[elmt].kk2 = kp[5];
-      ibminfo[elmt].ii3=ip[2]; ibminfo[elmt].jj3 = jp[2]; ibminfo[elmt].kk3 = kp[2];
-/*       GridCellaround2ndElmt(user,ibm,intp,elmt,k,j,i,&k2,&j2,&i2); */
-/*       Find_fsi_3rd_interp_Coeff(i2,j2,k2,elmt,intp,ibminfo,user,ibm); */
-      break;
-    }
-    case (7): {
-      ibminfo[elmt].ii1=ip[2]; ibminfo[elmt].jj1 = jp[2]; ibminfo[elmt].kk1 = kp[2];
-      ibminfo[elmt].ii2=ip[6]; ibminfo[elmt].jj2 = jp[6]; ibminfo[elmt].kk2 = kp[6];
-      ibminfo[elmt].ii3=ip[5]; ibminfo[elmt].jj3 = jp[5]; ibminfo[elmt].kk3 = kp[5];
-/*       GridCellaround2ndElmt(user,ibm,intp,elmt,k,j,i,&k2,&j2,&i2); */
-/*       Find_fsi_3rd_interp_Coeff(i2,j2,k2,elmt,intp,ibminfo,user,ibm); */
-      break;
-    }
-    case (8): {
-      ibminfo[elmt].ii1=ip[0]; ibminfo[elmt].jj1 = jp[0]; ibminfo[elmt].kk1 = kp[0];
-      ibminfo[elmt].ii2=ip[4]; ibminfo[elmt].jj2 = jp[4]; ibminfo[elmt].kk2 = kp[4];
-      ibminfo[elmt].ii3=ip[1]; ibminfo[elmt].jj3 = jp[1]; ibminfo[elmt].kk3 = kp[1];
-/*       GridCellaround2ndElmt(user,ibm,intp,elmt,k,j,i,&k2,&j2,&i2); */
-/*       Find_fsi_3rd_interp_Coeff(i2,j2,k2,elmt,intp,ibminfo,user,ibm); */
-      break;
-    }
-    case (9): {
-      ibminfo[elmt].ii1=ip[1]; ibminfo[elmt].jj1 = jp[1]; ibminfo[elmt].kk1 = kp[1];
-      ibminfo[elmt].ii2=ip[4]; ibminfo[elmt].jj2 = jp[4]; ibminfo[elmt].kk2 = kp[4];
-      ibminfo[elmt].ii3=ip[5]; ibminfo[elmt].jj3 = jp[5]; ibminfo[elmt].kk3 = kp[5];
-/*       GridCellaround2ndElmt(user,ibm,intp,elmt,k,j,i,&k2,&j2,&i2); */
-/*       Find_fsi_3rd_interp_Coeff(i2,j2,k2,elmt,intp,ibminfo,user,ibm); */
-      break;
-    }
-    case (10): {
-      ibminfo[elmt].ii1=ip[3]; ibminfo[elmt].jj1 = jp[3]; ibminfo[elmt].kk1 = kp[3];
-      ibminfo[elmt].ii2=ip[7]; ibminfo[elmt].jj2 = jp[7]; ibminfo[elmt].kk2 = kp[7];
-      ibminfo[elmt].ii3=ip[2]; ibminfo[elmt].jj3 = jp[2]; ibminfo[elmt].kk3 = kp[2];
-/*       GridCellaround2ndElmt(user,ibm,intp,elmt,k,j,i,&k2,&j2,&i2); */
-/*       Find_fsi_3rd_interp_Coeff(i2,j2,k2,elmt,intp,ibminfo,user,ibm); */
-      break;
-    }
-    case (11): {
-      ibminfo[elmt].ii1=ip[2]; ibminfo[elmt].jj1 = jp[2]; ibminfo[elmt].kk1 = kp[2];
-      ibminfo[elmt].ii2=ip[7]; ibminfo[elmt].jj2 = jp[7]; ibminfo[elmt].kk2 = kp[7];
-      ibminfo[elmt].ii3=ip[6]; ibminfo[elmt].jj3 = jp[6]; ibminfo[elmt].kk3 = kp[6];
-/*       GridCellaround2ndElmt(user,ibm,intp,elmt,k,j,i,&k2,&j2,&i2); */
-/*       Find_fsi_3rd_interp_Coeff(i2,j2,k2,elmt,intp,ibminfo,user,ibm); */
-      break;
-    }
-    }
-    if (ibminfo[elmt].smode<0) 
-      PetscPrintf(PETSC_COMM_SELF, "FSI 2nd Interpolation Coeffients Were not Found!!!! %d  %d %le %d %d %d\n", elmt, ibminfo[elmt].smode,ibminfo[elmt].d_s,i,j,k);
+	pc[0] = coor[k  ][j  ][i  ];
+	pc[1] = coor[k  ][j  ][i+1];
+	pc[2] = coor[k  ][j+1][i+1];
+	pc[3] = coor[k  ][j+1][i  ];
+
+	pc[4] = coor[k+1][j  ][i  ];
+	pc[5] = coor[k+1][j  ][i+1];
+	pc[6] = coor[k+1][j+1][i+1];
+	pc[7] = coor[k+1][j+1][i  ];
+
+
+
+	nvertpc[0] = nvert[k  ][j  ][i  ];
+	nvertpc[1] = nvert[k  ][j  ][i+1];
+	nvertpc[2] = nvert[k  ][j+1][i+1];
+	nvertpc[3] = nvert[k  ][j+1][i  ];
+
+	nvertpc[4] = nvert[k+1][j  ][i  ];
+	nvertpc[5] = nvert[k+1][j  ][i+1];
+	nvertpc[6] = nvert[k+1][j+1][i+1];
+	nvertpc[7] = nvert[k+1][j+1][i  ];
+
+
+	kp[0]=k  ;jp[0]=j  ;ip[0]=i  ;
+	kp[1]=k  ;jp[1]=j  ;ip[1]=i+1;
+	kp[2]=k  ;jp[2]=j+1;ip[2]=i+1;
+	kp[3]=k  ;jp[3]=j+1;ip[3]=i  ;
+	kp[4]=k+1;jp[4]=j  ;ip[4]=i  ;
+	kp[5]=k+1;jp[5]=j  ;ip[5]=i+1;
+	kp[6]=k+1;jp[6]=j+1;ip[6]=i+1;
+	kp[7]=k+1;jp[7]=j+1;ip[7]=i  ;
+
+	
+//	if(foundFlag){
+
+		fsi_2nd_InterceptionPoint(p, pc, nvertpc, nfx, nfy, nfz, ibminfo, elmt, &intp, pOriginal);
+		
+		switch (ibminfo[elmt].smode) {
+			case(0): {
+			  ibminfo[elmt].ii1=ip[0]; ibminfo[elmt].jj1 = jp[0]; ibminfo[elmt].kk1 = kp[0];
+			  ibminfo[elmt].ii2=ip[1]; ibminfo[elmt].jj2 = jp[1]; ibminfo[elmt].kk2 = kp[1];
+			  ibminfo[elmt].ii3=ip[2]; ibminfo[elmt].jj3 = jp[2]; ibminfo[elmt].kk3 = kp[2];
+		/*       GridCellaround2ndElmt(user,ibm,elmtinfo,intp,elmt,k,j,i,&k2,&j2,&i2,&foundFlag); */
+		/*       Find_fsi_3rd_interp_Coeff(i2,j2,k2,elmt,intp,ibminfo,user,ibm); */
+			  break;
+			}
+			case (1): {
+			  ibminfo[elmt].ii1=ip[0]; ibminfo[elmt].jj1 = jp[0]; ibminfo[elmt].kk1 = kp[0];
+			  ibminfo[elmt].ii2=ip[2]; ibminfo[elmt].jj2 = jp[2]; ibminfo[elmt].kk2 = kp[2];
+			  ibminfo[elmt].ii3=ip[3]; ibminfo[elmt].jj3 = jp[3]; ibminfo[elmt].kk3 = kp[3];
+		/*       GridCellaround2ndElmt(user,ibm,elmtinfo,intp,elmt,k,j,i,&k2,&j2,&i2,&foundFlag); */
+		/*       Find_fsi_3rd_interp_Coeff(i2,j2,k2,elmt,intp,ibminfo,user,ibm); */
+			  break;
+			}
+			case (2): {
+			  ibminfo[elmt].ii1=ip[4]; ibminfo[elmt].jj1 = jp[4]; ibminfo[elmt].kk1 = kp[4];
+			  ibminfo[elmt].ii2=ip[5]; ibminfo[elmt].jj2 = jp[5]; ibminfo[elmt].kk2 = kp[5];
+			  ibminfo[elmt].ii3=ip[6]; ibminfo[elmt].jj3 = jp[6]; ibminfo[elmt].kk3 = kp[6];
+		/*       GridCellaround2ndElmt(user,ibm,elmtinfo,intp,elmt,k,j,i,&k2,&j2,&i2,&foundFlag); */
+		/*       Find_fsi_3rd_interp_Coeff(i2,j2,k2,elmt,intp,ibminfo,user,ibm); */
+			  break;
+			}
+			case (3): {
+			  ibminfo[elmt].ii1=ip[4]; ibminfo[elmt].jj1 = jp[4]; ibminfo[elmt].kk1 = kp[4];
+			  ibminfo[elmt].ii2=ip[6]; ibminfo[elmt].jj2 = jp[6]; ibminfo[elmt].kk2 = kp[6];
+			  ibminfo[elmt].ii3=ip[7]; ibminfo[elmt].jj3 = jp[7]; ibminfo[elmt].kk3 = kp[7];
+		/*       GridCellaround2ndElmt(user,ibm,elmtinfo,intp,elmt,k,j,i,&k2,&j2,&i2,&foundFlag); */
+		/*       Find_fsi_3rd_interp_Coeff(i2,j2,k2,elmt,intp,ibminfo,user,ibm); */
+			  break;
+			}
+			case (4): {
+			  ibminfo[elmt].ii1=ip[0]; ibminfo[elmt].jj1 = jp[0]; ibminfo[elmt].kk1 = kp[0];
+			  ibminfo[elmt].ii2=ip[4]; ibminfo[elmt].jj2 = jp[4]; ibminfo[elmt].kk2 = kp[4];
+			  ibminfo[elmt].ii3=ip[3]; ibminfo[elmt].jj3 = jp[3]; ibminfo[elmt].kk3 = kp[3];
+		/*       GridCellaround2ndElmt(user,ibm,elmtinfo,intp,elmt,k,j,i,&k2,&j2,&i2,&foundFlag); */
+		/*       Find_fsi_3rd_interp_Coeff(i2,j2,k2,elmt,intp,ibminfo,user,ibm); */
+			  break;
+			}
+			case (5): {
+			  ibminfo[elmt].ii1=ip[3]; ibminfo[elmt].jj1 = jp[3]; ibminfo[elmt].kk1 = kp[3];
+			  ibminfo[elmt].ii2=ip[4]; ibminfo[elmt].jj2 = jp[4]; ibminfo[elmt].kk2 = kp[4];
+			  ibminfo[elmt].ii3=ip[7]; ibminfo[elmt].jj3 = jp[7]; ibminfo[elmt].kk3 = kp[7];
+		/*       GridCellaround2ndElmt(user,ibm,elmtinfo,intp,elmt,k,j,i,&k2,&j2,&i2,&foundFlag); */
+		/*       Find_fsi_3rd_interp_Coeff(i2,j2,k2,elmt,intp,ibminfo,user,ibm); */
+			  break;
+			}
+			case (6): {
+			  ibminfo[elmt].ii1=ip[1]; ibminfo[elmt].jj1 = jp[1]; ibminfo[elmt].kk1 = kp[1];
+			  ibminfo[elmt].ii2=ip[5]; ibminfo[elmt].jj2 = jp[5]; ibminfo[elmt].kk2 = kp[5];
+			  ibminfo[elmt].ii3=ip[2]; ibminfo[elmt].jj3 = jp[2]; ibminfo[elmt].kk3 = kp[2];
+		/*       GridCellaround2ndElmt(user,ibm,elmtinfo,intp,elmt,k,j,i,&k2,&j2,&i2,&foundFlag); */
+		/*       Find_fsi_3rd_interp_Coeff(i2,j2,k2,elmt,intp,ibminfo,user,ibm); */
+			  break;
+			}
+			case (7): {
+			  ibminfo[elmt].ii1=ip[2]; ibminfo[elmt].jj1 = jp[2]; ibminfo[elmt].kk1 = kp[2];
+			  ibminfo[elmt].ii2=ip[6]; ibminfo[elmt].jj2 = jp[6]; ibminfo[elmt].kk2 = kp[6];
+			  ibminfo[elmt].ii3=ip[5]; ibminfo[elmt].jj3 = jp[5]; ibminfo[elmt].kk3 = kp[5];
+		/*       GridCellaround2ndElmt(user,ibm,elmtinfo,intp,elmt,k,j,i,&k2,&j2,&i2,&foundFlag); */
+		/*       Find_fsi_3rd_interp_Coeff(i2,j2,k2,elmt,intp,ibminfo,user,ibm); */
+			  break;
+			}
+			case (8): {
+			  ibminfo[elmt].ii1=ip[0]; ibminfo[elmt].jj1 = jp[0]; ibminfo[elmt].kk1 = kp[0];
+			  ibminfo[elmt].ii2=ip[4]; ibminfo[elmt].jj2 = jp[4]; ibminfo[elmt].kk2 = kp[4];
+			  ibminfo[elmt].ii3=ip[1]; ibminfo[elmt].jj3 = jp[1]; ibminfo[elmt].kk3 = kp[1];
+		/*       GridCellaround2ndElmt(user,ibm,elmtinfo,intp,elmt,k,j,i,&k2,&j2,&i2,&foundFlag); */
+		/*       Find_fsi_3rd_interp_Coeff(i2,j2,k2,elmt,intp,ibminfo,user,ibm); */
+			  break;
+			}
+			case (9): {
+			  ibminfo[elmt].ii1=ip[1]; ibminfo[elmt].jj1 = jp[1]; ibminfo[elmt].kk1 = kp[1];
+			  ibminfo[elmt].ii2=ip[4]; ibminfo[elmt].jj2 = jp[4]; ibminfo[elmt].kk2 = kp[4];
+			  ibminfo[elmt].ii3=ip[5]; ibminfo[elmt].jj3 = jp[5]; ibminfo[elmt].kk3 = kp[5];
+		/*       GridCellaround2ndElmt(user,ibm,elmtinfo,intp,elmt,k,j,i,&k2,&j2,&i2,&foundFlag); */
+		/*       Find_fsi_3rd_interp_Coeff(i2,j2,k2,elmt,intp,ibminfo,user,ibm); */
+			  break;
+			}
+			case (10): {
+			  ibminfo[elmt].ii1=ip[3]; ibminfo[elmt].jj1 = jp[3]; ibminfo[elmt].kk1 = kp[3];
+			  ibminfo[elmt].ii2=ip[7]; ibminfo[elmt].jj2 = jp[7]; ibminfo[elmt].kk2 = kp[7];
+			  ibminfo[elmt].ii3=ip[2]; ibminfo[elmt].jj3 = jp[2]; ibminfo[elmt].kk3 = kp[2];
+		/*       GridCellaround2ndElmt(user,ibm,elmtinfo,intp,elmt,k,j,i,&k2,&j2,&i2,&foundFlag); */
+		/*       Find_fsi_3rd_interp_Coeff(i2,j2,k2,elmt,intp,ibminfo,user,ibm); */
+			  break;
+			}
+			case (11): {
+			  ibminfo[elmt].ii1=ip[2]; ibminfo[elmt].jj1 = jp[2]; ibminfo[elmt].kk1 = kp[2];
+			  ibminfo[elmt].ii2=ip[7]; ibminfo[elmt].jj2 = jp[7]; ibminfo[elmt].kk2 = kp[7];
+			  ibminfo[elmt].ii3=ip[6]; ibminfo[elmt].jj3 = jp[6]; ibminfo[elmt].kk3 = kp[6];
+		/*       GridCellaround2ndElmt(user,ibm,elmtinfo,intp,elmt,k,j,i,&k2,&j2,&i2,&foundFlag); */
+		/*       Find_fsi_3rd_interp_Coeff(i2,j2,k2,elmt,intp,ibminfo,user,ibm); */
+			  break;
+			}
+		}//end switch
+//	} // if(foundFlag)
+    if (ibminfo[elmt].smode<0)
+      PetscPrintf(PETSC_COMM_SELF, "FSI 2nd Interpolation Coeffients Were not Found!!!! foundFlag=%d elmt=%d  smode=%d d_s=%le i=%d j=%d k=%d\n", foundFlag, elmt, ibminfo[elmt].smode,ibminfo[elmt].d_s,i,j,k);
     //PetscPrintf(PETSC_COMM_SELF, "FSI Interpolatoion host %d  %d  %d \n", ibminfo[elmt].i1,ibminfo[elmt].j1,ibminfo[elmt].k1);
     
   }
 
   DAVecRestoreArray(fda, user->lCent,&coor);  
-  //DAVecRestoreArray(da, user->lNvert, &nvert);
+  DAVecRestoreArray(da, user->lNvert, &nvert);
   return(0);
 }
 
@@ -2150,6 +2886,7 @@ PetscErrorCode Find_fsi_3rd_interp_Coeff(PetscInt i, PetscInt j,
   PetscInt	mx = info.mx, my = info.my, mz = info.mz;
   //PetscInt	i, j, k;
   PetscInt	i2, j2, k2;
+    PetscInt      lxs, lxe, lys, lye, lzs, lze;
 
   //PetscInt      n_elmt = ibm->n_elmt;
   PetscInt      ip[8],jp[8],kp[8];
@@ -2157,6 +2894,17 @@ PetscErrorCode Find_fsi_3rd_interp_Coeff(PetscInt i, PetscInt j,
   Cmpnts        intp;
   //PetscReal	***nvert,nvertpc[8];
   PetscReal     nfx,nfy,nfz;
+  
+  	lxs = xs; lxe = xe;
+	lys = ys; lye = ye;
+	lzs = zs; lze = ze;
+
+	if (xs==0) lxs = xs+1; 
+	if (ys==0) lys = ys+1; 
+	if (zs==0) lzs = zs+1; 
+	if (xe==mx) lxe = xe-1; 
+	if (ye==my) lye = ye-1; 
+	if (ze==mz) lze = ze-1;
 
   PetscInt	rank;
   MPI_Comm_rank(PETSC_COMM_WORLD, &rank);
@@ -2180,8 +2928,8 @@ PetscErrorCode Find_fsi_3rd_interp_Coeff(PetscInt i, PetscInt j,
 
   // normal correction for near domain bndry pts
   
-  if (i>=xs && i<xe && j>=ys && j<ye && k>=zs && k<ze) {
-    
+  //if (i>=lxs && i<=lxe && j>=lys && j<=lye && k>=lzs && k<=lze) {  
+    if (i>=xs && i<xe && j>=ys && j<ye && k>=zs && k<ze) {
     pc[0] = coor[k  ][j  ][i  ];
     pc[1] = coor[k  ][j  ][i+1];
     pc[2] = coor[k  ][j+1][i+1];
@@ -2201,8 +2949,7 @@ PetscErrorCode Find_fsi_3rd_interp_Coeff(PetscInt i, PetscInt j,
     kp[6]=k+1;jp[6]=j+1;ip[6]=i+1;
     kp[7]=k+1;jp[7]=j+1;ip[7]=i  ;
     
-    fsi_3rd_InterceptionPoint(p,pc, nfx, nfy,
-			      nfz, ibminfo,elmt, &intp);
+    fsi_3rd_InterceptionPoint(p,pc, nfx, nfy, nfz, ibminfo,elmt, &intp);
     
     switch (ibminfo[elmt].ssmode) {
     case(0): {
@@ -2408,11 +3155,11 @@ PetscErrorCode fsi_2nd_InterceptionPoint2(Cmpnts p, Cmpnts pc[8],
 	  ibminfo[number].d_ss = sqrt((pint.x-p.x)*(pint.x - p.x) + (pint.y-p.y) *
 				     (pint.y-p.y) + (pint.z - p.z)* (pint.z - p.z));
 	  ibminfo[number].ssmode = cell;
-	  
+	  	  
 	  if (ibminfo[number].ct11<1e-6 &&
 	      ibminfo[number].ct22<1e-6 &&
 	      ibminfo[number].ct33<1e-6)
-	    PetscPrintf(PETSC_COMM_SELF, "0 fsi Coeff 2nd fsi!!!! %d  %d %le %le %le %le \n", number, ibminfo[number].imode,ibminfo[number].d_i);
+	    PetscPrintf(PETSC_COMM_SELF, "0 fsi Coeff 2nd fsi!!!! %d  %d %le %le %le %le \n", number, ibminfo[number].imode,ibminfo[number].d_ss);
 	  
 	  return (0);
 	}
@@ -2440,12 +3187,24 @@ PetscErrorCode Find_fsi_2nd_interp_Coeff2(PetscInt i, PetscInt j,
   PetscInt	zs = info.zs, ze = info.zs + info.zm;
   PetscInt	mx = info.mx, my = info.my, mz = info.mz;
   //PetscInt	i, j, k;
+    PetscInt      lxs, lxe, lys, lye, lzs, lze;
 
   //PetscInt      n_elmt = ibm->n_elmt;
   PetscInt      ip[8],jp[8],kp[8];
   Cmpnts        ***coor,pc[8];
   //PetscReal	***nvert,nvertpc[8];
   PetscReal     nfx,nfy,nfz;
+  
+  	lxs = xs; lxe = xe;
+	lys = ys; lye = ye;
+	lzs = zs; lze = ze;
+
+	if (xs==0) lxs = xs+1; 
+	if (ys==0) lys = ys+1; 
+	if (zs==0) lzs = zs+1; 
+	if (xe==mx) lxe = xe-1; 
+	if (ye==my) lye = ye-1; 
+	if (ze==mz) lze = ze-1;
 
   PetscInt	rank;
   MPI_Comm_rank(PETSC_COMM_WORLD, &rank);
@@ -2465,8 +3224,8 @@ PetscErrorCode Find_fsi_2nd_interp_Coeff2(PetscInt i, PetscInt j,
 /*   if (i==mx-3) { */
 /*     nfx=0.;//-0.0001*PetscSign(coor[k][j][i].x-coor[k][j][i-1].x); */
 /*   } */
-  
   if (i>=xs && i<xe && j>=ys && j<ye && k>=zs && k<ze) {
+  //if (i>=lxs && i<=lxe && j>=lys && j<=lye && k>=lzs && k<=lze) {
     
     pc[0] = coor[k  ][j  ][i  ];
     pc[1] = coor[k  ][j  ][i+1];
@@ -2575,30 +3334,98 @@ PetscErrorCode Find_fsi_2nd_interp_Coeff2(PetscInt i, PetscInt j,
   return(0);
 }
 
-PetscErrorCode fsi_interpolation_coeff(UserCtx *user, IBMNodes *ibm, IBMInfo *fsi_intp,SurfElmtInfo *elmtinfo, FSInfo *fsi)
+PetscErrorCode fsi_interpolation_coeff(UserCtx *user, IBMNodes *ibm, IBMInfo *ibminfo,SurfElmtInfo *elmtinfo, FSInfo *fsi)
 {
-/*  Note: this subroutine needs the information of ibmnodes, 
-    Therefore shouldn't be called before ibm_search and 
-    FsiInitialize */
-
-  Closest_NearBndryPt_ToSurfElmt(user, ibm, elmtinfo, fsi, 0);
-  PetscPrintf(PETSC_COMM_WORLD, "Closest nbn\n"); 
-  //PetscBarrier(PETSC_NULL);
-
-  GridCellaroundSurElmt(user, ibm, elmtinfo);
-  //PetscBarrier(PETSC_NULL);
-
-  PetscPrintf(PETSC_COMM_WORLD, "Closest grid cell\n" ); 
-  Find_fsi_interp_Coeff(fsi_intp, user, ibm, elmtinfo);
   PetscBarrier(PETSC_NULL);
-
+  Closest_NearBndryPt_ToSurfElmt(user, ibm, elmtinfo, fsi, 0);
+  PetscBarrier(PETSC_NULL);
+  GridCellaroundSurElmt(user, ibm, elmtinfo);
+  PetscPrintf(PETSC_COMM_WORLD, "Closest grid cell\n" ); 
+  PetscBarrier(PETSC_NULL);
+  Find_fsi_interp_Coeff(ibminfo, user, ibm, elmtinfo);
+  PetscBarrier(PETSC_NULL);
   PetscPrintf(PETSC_COMM_WORLD, "fsi interp coeff\n" ); 
+  //Find_fsi_interp_Coeff2(ibminfo, user, ibm, elmtinfo);
+  PetscPrintf(PETSC_COMM_WORLD, "fsi interp coeff 2\n" ); 
+//fsiDataForPostProcessing(ibminfo,user,ibm,elmtinfo);
+  return(0);
+}
 
-  Find_fsi_interp_Coeff2(fsi_intp, user, ibm, elmtinfo);
+PetscErrorCode fsi_interpolation_coeff2(UserCtx *user, IBMNodes *ibm, IBMInfo *ibminfo,SurfElmtInfo *elmtinfo, FSInfo *fsi)
+{
+  PetscBarrier(PETSC_NULL);
+  Closest_NearBndryPt_ToSurfElmt2(user, ibm, elmtinfo, fsi, 0);
+  PetscBarrier(PETSC_NULL);
+  GridCellaroundSurElmt(user, ibm, elmtinfo);
+  PetscPrintf(PETSC_COMM_WORLD, "Closest grid cell\n" ); 
+  PetscBarrier(PETSC_NULL);
+  Find_fsi_interp_Coeff(ibminfo, user, ibm, elmtinfo);
+  PetscBarrier(PETSC_NULL);
+  PetscPrintf(PETSC_COMM_WORLD, "fsi interp coeff\n" ); 
+  Find_fsi_interp_Coeff2(ibminfo, user, ibm, elmtinfo);
+  PetscPrintf(PETSC_COMM_WORLD, "fsi interp coeff 2\n" ); 
+  return(0);
+}
+
+
+PetscErrorCode fsi_interpolation_coeff3(UserCtx *user, IBMNodes *ibm, IBMInfo *ibminfo,SurfElmtInfo *elmtinfo, FSInfo *fsi)
+{
+  PetscBarrier(PETSC_NULL);
+  Closest_NearBndryPt_ToSurfElmt3(user, ibm, elmtinfo, fsi, 0);
+  PetscBarrier(PETSC_NULL);
+  GridCellaroundSurElmt(user, ibm, elmtinfo);
+  PetscPrintf(PETSC_COMM_WORLD, "Closest grid cell\n" ); 
+  PetscBarrier(PETSC_NULL);
+  Find_fsi_interp_Coeff(ibminfo, user, ibm, elmtinfo);
+  PetscBarrier(PETSC_NULL);
+  PetscPrintf(PETSC_COMM_WORLD, "fsi interp coeff\n" ); 
+  Find_fsi_interp_Coeff2(ibminfo, user, ibm, elmtinfo);
   PetscPrintf(PETSC_COMM_WORLD, "fsi interp coeff 2\n" ); 
 
   return(0);
 }
+
+
+PetscErrorCode fsi_interpolation_coeff4(UserCtx *user, IBMNodes *ibm, IBMInfo *ibminfo,SurfElmtInfo *elmtinfo, FSInfo *fsi)
+{
+  PetscBarrier(PETSC_NULL);
+  Closest_NearBndryPt_ToSurfElmt4(user, ibm, elmtinfo, fsi, 0);
+  PetscBarrier(PETSC_NULL);
+  GridCellaroundSurElmt(user, ibm, elmtinfo);
+  PetscPrintf(PETSC_COMM_WORLD, "Closest grid cell\n" ); 
+  PetscBarrier(PETSC_NULL);
+  Find_fsi_interp_Coeff(ibminfo, user, ibm, elmtinfo);
+  PetscBarrier(PETSC_NULL);
+  PetscPrintf(PETSC_COMM_WORLD, "fsi interp coeff\n" ); 
+  Find_fsi_interp_Coeff2(ibminfo, user, ibm, elmtinfo);
+  PetscPrintf(PETSC_COMM_WORLD, "fsi interp coeff 2\n" ); 
+
+  return(0);
+}
+
+
+
+PetscErrorCode fsi_interpolation_coeff_fsi(UserCtx *user, IBMNodes *ibm, FSInfo *fsi)
+{ 
+  
+// New function
+
+
+//PetscBarrier(PETSC_NULL);
+  Closest_NearBndryPt_ToSurfElmt(user, ibm,&fsi->elmtinfo[0], fsi, 0);
+  //PetscBarrier(PETSC_NULL);
+  GridCellaroundSurElmt(user, ibm, &fsi->elmtinfo[0]);
+  PetscPrintf(PETSC_COMM_WORLD, "Closest grid cell\n" ); 
+  //PetscBarrier(PETSC_NULL);
+  Find_fsi_interp_Coeff(&fsi->fsi_intp[0], user, ibm, &fsi->elmtinfo[0]);
+  //PetscBarrier(PETSC_NULL);
+  //
+  PetscPrintf(PETSC_COMM_WORLD, "fsi interp coeff\n" ); 
+  Find_fsi_interp_Coeff2(&fsi->fsi_intp[0], user, ibm, &fsi->elmtinfo[0]);
+  PetscPrintf(PETSC_COMM_WORLD, "fsi interp coeff 2\n" ); 
+  return(0);
+}
+
 
 PetscErrorCode Calc_fsi_surf_stress(IBMInfo *ibminfo, UserCtx *user, IBMNodes *ibm, SurfElmtInfo *elmtinfo)
 {
@@ -2607,6 +3434,8 @@ PetscErrorCode Calc_fsi_surf_stress(IBMInfo *ibminfo, UserCtx *user, IBMNodes *i
   PetscInt	xs = info.xs, xe = info.xs + info.xm;
   PetscInt  	ys = info.ys, ye = info.ys + info.ym;
   PetscInt	zs = info.zs, ze = info.zs + info.zm;
+    PetscInt      lxs, lxe, lys, lye, lzs, lze;
+
 
   PetscInt      n_elmt = ibm->n_elmt;
   PetscInt      elmt;
@@ -2626,7 +3455,7 @@ PetscErrorCode Calc_fsi_surf_stress(IBMInfo *ibminfo, UserCtx *user, IBMNodes *i
   for (elmt=0; elmt<n_elmt; elmt++) {
     //PetscPrintf(PETSC_COMM_SELF, "n_P %d\n",ibm->n_P[elmt]);
     
-  if (elmtinfo[elmt].n_P>0  && elmtinfo[elmt].FoundAroundcell>0) {
+  if (elmtinfo[elmt].n_P>0  && elmtinfo[elmt].FoundAroundcell==1) {
     ip1 = ibminfo[elmt].i1; jp1 = ibminfo[elmt].j1; kp1 = ibminfo[elmt].k1;
     ip2 = ibminfo[elmt].i2; jp2 = ibminfo[elmt].j2; kp2 = ibminfo[elmt].k2;
     ip3 = ibminfo[elmt].i3; jp3 = ibminfo[elmt].j3; kp3 = ibminfo[elmt].k3;
@@ -2721,19 +3550,25 @@ PetscErrorCode Calc_fsi_surf_stress2(IBMInfo *ibminfo, UserCtx *user, IBMNodes *
   PetscInt	xs = info.xs, xe = info.xs + info.xm;
   PetscInt  	ys = info.ys, ye = info.ys + info.ym;
   PetscInt	zs = info.zs, ze = info.zs + info.zm;
+  PetscInt      lxs, lxe, lys, lye, lzs, lze;
+  PetscInt      mx = info.mx, my = info.my, mz = info.mz;
+
 
   PetscInt      n_elmt = ibm->n_elmt;
   PetscInt      elmt;
   PetscInt	ip1, ip2, ip3, jp1, jp2, jp3, kp1, kp2, kp3;
   PetscInt	ip11, ip22, ip33, jp11, jp22, jp33, kp11, kp22, kp33;
   PetscInt	i, j, k;
-
+  
+  PetscReal     c1, c2, c3;
   PetscReal     cr1, cr2, cr3;
   PetscReal     cv1, cv2, cv3;
   PetscReal     cr11, cr22, cr33;
   PetscReal     cv11, cv22, cv33;
   PetscReal     cs1, cs2, cs3;
   PetscReal     cs11, cs22, cs33;
+  
+    PetscReal     sv1, sv2, sv3;
 
   PetscInt	iip11, iip22, iip33, jjp11, jjp22, jjp33, kkp11, kkp22, kkp33;
   PetscInt	iip1, iip2, iip3, jjp1, jjp2, jjp3, kkp1, kkp2, kkp3;
@@ -2748,346 +3583,286 @@ PetscErrorCode Calc_fsi_surf_stress2(IBMInfo *ibminfo, UserCtx *user, IBMNodes *
   PetscReal     ***p;
   Cmpnts        ***ucat, uinp;
   PetscReal	***nvert;
-
+  PetscReal P, Tow_ws, Tow_wt, Tow_wn;
+  
   DAVecGetArray(fda, user->lUcat, &ucat);
   DAVecGetArray(da, user->lP, &p);
   DAVecGetArray(da, user->lNvert, &nvert);
-
-  for (elmt=0; elmt<n_elmt; elmt++) {
-    //PetscPrintf(PETSC_COMM_SELF, "n_P %d\n",ibm->n_P[elmt]);
-    
-  if (elmtinfo[elmt].n_P>0  && elmtinfo[elmt].FoundAroundcell>0) {
-    ip1 = ibminfo[elmt].i1; jp1 = ibminfo[elmt].j1; kp1 = ibminfo[elmt].k1;
-    ip2 = ibminfo[elmt].i2; jp2 = ibminfo[elmt].j2; kp2 = ibminfo[elmt].k2;
-    ip3 = ibminfo[elmt].i3; jp3 = ibminfo[elmt].j3; kp3 = ibminfo[elmt].k3;
-    
-    cr1 = ibminfo[elmt].cr1; cr2 = ibminfo[elmt].cr2; cr3 = ibminfo[elmt].cr3;
-    cs1 = ibminfo[elmt].cs1; cs2 = ibminfo[elmt].cs2; cs3 = ibminfo[elmt].cs3;
-
-    ip11 = ibminfo[elmt].i11; jp11 = ibminfo[elmt].j11; kp11 = ibminfo[elmt].k11;
-    ip22 = ibminfo[elmt].i22; jp22 = ibminfo[elmt].j22; kp22 = ibminfo[elmt].k22;
-    ip33 = ibminfo[elmt].i33; jp33 = ibminfo[elmt].j33; kp33 = ibminfo[elmt].k33;
-    
-    cr11 = ibminfo[elmt].cr11; cr22 = ibminfo[elmt].cr22; cr33 = ibminfo[elmt].cr33;
-    cs11 = ibminfo[elmt].cs11; cs22 = ibminfo[elmt].cs22; cs33 = ibminfo[elmt].cs33;
-
-    iip1 = ibminfo[elmt].ii1; jjp1 = ibminfo[elmt].jj1; kkp1 = ibminfo[elmt].kk1;
-    iip2 = ibminfo[elmt].ii2; jjp2 = ibminfo[elmt].jj2; kkp2 = ibminfo[elmt].kk2;
-    iip3 = ibminfo[elmt].ii3; jjp3 = ibminfo[elmt].jj3; kkp3 = ibminfo[elmt].kk3;
-    
-    iip11 = ibminfo[elmt].ii11; jjp11 = ibminfo[elmt].jj11; kkp11 = ibminfo[elmt].kk11;
-    iip22 = ibminfo[elmt].ii22; jjp22 = ibminfo[elmt].jj22; kkp22 = ibminfo[elmt].kk22;
-    iip33 = ibminfo[elmt].ii33; jjp33 = ibminfo[elmt].jj33; kkp33 = ibminfo[elmt].kk33;
-
-    ct1 = ibminfo[elmt].ct1; ct2 = ibminfo[elmt].ct2; ct3 = ibminfo[elmt].ct3;
-    ct11 = ibminfo[elmt].ct11; ct22 = ibminfo[elmt].ct22; ct33 = ibminfo[elmt].ct33;
-
-
-/*     di  = 0.5*(ibminfo[elmt].d_i+ibminfo[elmt].d_ii);  */
-    di  = (ibminfo[elmt].d_i); 
-    if (elmtinfo[elmt].Need3rdPoint) {
-      ds  = (ibminfo[elmt].d_s);
-      di  = di + ds;
-    }
-
-    i=elmtinfo[elmt].icell;
-    j=elmtinfo[elmt].jcell;
-    k=elmtinfo[elmt].kcell;
-
-/*     PetscPrintf(PETSC_COMM_SELF, "intp hosts di %d %d %d %d %d %d %d %d %d\n",ip1,jp1,kp1,ip2,jp2,kp2,ip3,jp3,kp3); */
-    if (i>=xs && i<xe && j>=ys && j<ye && k>=zs && k<ze) {
-      //if (ip1>=xs && ip1<xe && jp1>=ys && jp1<ye && kp1>=zs && kp1<ze) {    
-/*       cv1 = p[kp1][jp1][ip1]; */
-/*       cv2 = p[kp2][jp2][ip2]; */
-/*       cv3 = p[kp3][jp3][ip3]; */
-/*       cv11 = p[kp11][jp11][ip11]; */
-/*       cv22 = p[kp22][jp22][ip22]; */
-/*       cv33 = p[kp33][jp33][ip33]; */
-
-/*       elmtinfo[elmt].P= 0.5*(cv1 * cr1 + cv2 * cr2 + cv3 * cr3 + */
-/* 			     cv11*cr11 + cv22*cr22 + cv33*cr33); */
-
-      if (elmtinfo[elmt].Need3rdPoint) {
-      cv1 = p[kkp1][jjp1][iip1];
-      cv2 = p[kkp2][jjp2][iip2];
-      cv3 = p[kkp3][jjp3][iip3];
-      elmtinfo[elmt].P = cv1 * ct1 + cv2 * ct2 + cv3 * ct3 ;
-      } else {
-
-      cv1 = p[kp1][jp1][ip1];
-      cv2 = p[kp2][jp2][ip2];
-      cv3 = p[kp3][jp3][ip3];
-/*       cv11 = p[kp11][jp11][ip11]; */
-/*       cv22 = p[kp22][jp22][ip22]; */
-/*       cv33 = p[kp33][jp33][ip33]; */
-
-/*       elmtinfo[elmt].P= 0.5*(cv1 * cr1 + cv2 * cr2 + cv3 * cr3 + */
-/* 			     cv11*cr11 + cv22*cr22 + cv33*cr33); */
-      elmtinfo[elmt].P= cv1 * cr1 + cv2 * cr2 + cv3 * cr3 ;
-      }
-
-/*       if ((int)(nvert[kp1][jp1][ip1]+0.5)>1) { */
-/* 	ucat[kp1][jp1][ip1].z=0.; */
-/* 	ucat[kp1][jp1][ip1].y=0.; */
-/* 	ucat[kp1][jp1][ip1].x=0.; */
-/*       } */
-/*       if ((int)(nvert[kp2][jp2][ip2]+0.5)>1) { */
-/* 	ucat[kp2][jp2][ip2].z=0.; */
-/* 	ucat[kp2][jp2][ip2].y=0.; */
-/* 	ucat[kp2][jp2][ip2].x=0.; */
-/*       } */
-/*       if ((int)(nvert[kp3][jp3][ip3]+0.5)>1) { */
-/* 	ucat[kp3][jp3][ip3].z=0.; */
-/* 	ucat[kp3][jp3][ip3].y=0.; */
-/* 	ucat[kp3][jp3][ip3].x=0.; */
-/*       } */
-
-/*      if ((int)(nvert[kkp1][jjp1][iip1]+0.5)>1) { */
-/* 	ucat[kkp1][jjp1][iip1].z=0.; */
-/* 	ucat[kkp1][jjp1][iip1].y=0.; */
-/* 	ucat[kkp1][jjp1][iip1].x=0.; */
-/*       } */
-/*       if ((int)(nvert[kkp2][jjp2][iip2]+0.5)>1) { */
-/* 	ucat[kkp2][jjp2][iip2].z=0.; */
-/* 	ucat[kkp2][jjp2][iip2].y=0.; */
-/* 	ucat[kkp2][jjp2][iip2].x=0.; */
-/*       } */
-/*       if ((int)(nvert[kkp3][jjp3][iip3]+0.5)>1) { */
-/* 	ucat[kkp3][jjp3][iip3].z=0.; */
-/* 	ucat[kkp3][jjp3][iip3].y=0.; */
-/* 	ucat[kkp3][jjp3][iip3].x=0.; */
-/*       } */
-/*       if ((int)(nvert[kkp11][jjp11][iip11]+0.5)>1) { */
-/* 	ucat[kkp11][jjp11][iip11].z=0.; */
-/* 	ucat[kkp11][jjp11][iip11].y=0.; */
-/* 	ucat[kkp11][jjp11][iip11].x=0.; */
-/*       } */
-/*       if ((int)(nvert[kkp22][jjp22][iip22]+0.5)>1) { */
-/* 	ucat[kkp22][jjp22][iip22].z=0.; */
-/* 	ucat[kkp22][jjp22][iip22].y=0.; */
-/* 	ucat[kkp22][jjp22][iip22].x=0.; */
-/*       } */
-/*       if ((int)(nvert[kkp33][jjp33][iip33]+0.5)>1) { */
-/* 	ucat[kkp33][jjp33][iip33].z=0.; */
-/* 	ucat[kkp33][jjp33][iip33].y=0.; */
-/* 	ucat[kkp33][jjp33][iip33].x=0.; */
-/*       } */
-
-      if (elmt==184 || elmt==231) 
-      	PetscPrintf(PETSC_COMM_SELF, "intp P %d %le %le %le %le %le %le %le %le\n",elmt,elmtinfo[elmt].P,cr1,cr2,cr3,cv1,cv2,cv3,di);
-
-/*       if (fabs(elmtinfo[elmt].P)<1e-5) */
-/*       	PetscPrintf(PETSC_COMM_SELF, "intp P %le %le %le %le %d %d %d %d \n",elmtinfo[elmt].P,cr1,cr2,cr3,ip1,jp1,kp1,elmt); */
- 
-      if (elmtinfo[elmt].Need3rdPoint) {
-
-      cv1 = ucat[kkp1][jjp1][iip1].x;
-      cv2 = ucat[kkp2][jjp2][iip2].x;
-      cv3 = ucat[kkp3][jjp3][iip3].x;
-/*       cv11 = ucat[kkp11][jjp11][iip11].x; */
-/*       cv22 = ucat[kkp22][jjp22][iip22].x; */
-/*       cv33 = ucat[kkp33][jjp33][iip33].x; */
-
-/*       uinp.x = 0.5*(cv1 * ct1 + cv2 * ct2 + cv3 * ct3 + */
-/* 		    cv11*ct11 + cv22*ct22 + cv33*ct33); */
-/*       uinp.x = 0.5*(cv1 * cs1 + cv2 * cs2 + cv3 * cs3 + */
-/* 		    cv11*cs11 + cv22*cs22 + cv33*cs33); */
-      uinp.x = cv1 * ct1 + cv2 * ct2 + cv3 * ct3 ;
-
-      } else {
-      cv1 = ucat[kp1][jp1][ip1].x;
-      cv2 = ucat[kp2][jp2][ip2].x;
-      cv3 = ucat[kp3][jp3][ip3].x;
-/*       cv11 = ucat[kp11][jp11][ip11].x; */
-/*       cv22 = ucat[kp22][jp22][ip22].x; */
-/*       cv33 = ucat[kp33][jp33][ip33].x; */
-      uinp.x = (cv1 * cs1 + cv2 * cs2 + cv3 * cs3 );
-      }
-
-      if (elmt==184 || elmt==231){
-      PetscPrintf(PETSC_COMM_SELF, "intp u_x 1  %d %le %le %le %le %le %le %le\n",elmt,uinp.x,cv1,cv2,cv3,ct1,ct2,ct3);
-      PetscPrintf(PETSC_COMM_SELF, "intp u_x 11 %d %le %le %le %le %le %le %le\n",elmt,uinp.x,cv11,cv22,cv33,ct11,ct22,ct33);
-      }
-
-      if (elmtinfo[elmt].Need3rdPoint) {
-      cv1 = ucat[kkp1][jjp1][iip1].y;
-      cv2 = ucat[kkp2][jjp2][iip2].y;
-      cv3 = ucat[kkp3][jjp3][iip3].y;
-/*       cv11 = ucat[kkp11][jjp11][iip11].y; */
-/*       cv22 = ucat[kkp22][jjp22][iip22].y; */
-/*       cv33 = ucat[kkp33][jjp33][iip33].y; */
-
-/*       uinp.y =  0.5*(cv1 * ct1 + cv2 * ct2 + cv3 * ct3 + */
-/* 		     cv11*ct11 + cv22*ct22 + cv33*ct33); */
-/*       uinp.y =  0.5*(cv1 * cs1 + cv2 * cs2 + cv3 * cs3 + */
-/* 		     cv11*cs11 + cv22*cs22 + cv33*cs33); */
-      uinp.y =  cv1 * ct1 + cv2 * ct2 + cv3 * ct3 ;
-      } else {	
-      cv1 = ucat[kp1][jp1][ip1].y;
-      cv2 = ucat[kp2][jp2][ip2].y;
-      cv3 = ucat[kp3][jp3][ip3].y;
-/*       cv11 = ucat[kp11][jp11][ip11].y; */
-/*       cv22 = ucat[kp22][jp22][ip22].y; */
-/*       cv33 = ucat[kp33][jp33][ip33].y; */
-      uinp.y =  (cv1 * cs1 + cv2 * cs2 + cv3 * cs3 );
-      }
-
-      if (elmt==184 || elmt==231){
-      PetscPrintf(PETSC_COMM_SELF, "intp u_y 1  %d %le %le %le %le %le %le %le\n",elmt,uinp.y,cv1,cv2,cv3,ct1,ct2,ct3);
-      PetscPrintf(PETSC_COMM_SELF, "intp u_y 11 %d %le %le %le %le %le %le %le\n",elmt,uinp.y,cv11,cv22,cv33,ct11,ct22,ct33);
-      }
-
-      if (elmtinfo[elmt].Need3rdPoint) {
-      cv1 = ucat[kkp1][jjp1][iip1].z;
-      cv2 = ucat[kkp2][jjp2][iip2].z;
-      cv3 = ucat[kkp3][jjp3][iip3].z;
-/*       cv11 = ucat[kkp11][jjp11][iip11].z; */
-/*       cv22 = ucat[kkp22][jjp22][iip22].z; */
-/*       cv33 = ucat[kkp33][jjp33][iip33].z; */
-
-/*       uinp.z =  0.5*(cv1 * cs1 + cv2 * cs2 + cv3 * cs3 + */
-/* 		     cv11*cs11 + cv22*cs22 + cv33*cs33); */
-
-      uinp.z =  cv1 * ct1 + cv2 * ct2 + cv3 * ct3 ;
-      } else {
-      cv1 = ucat[kp1][jp1][ip1].z;
-      cv2 = ucat[kp2][jp2][ip2].z;
-      cv3 = ucat[kp3][jp3][ip3].z;
-/*       cv11 = ucat[kp11][jp11][ip11].z; */
-/*       cv22 = ucat[kp22][jp22][ip22].z; */
-/*       cv33 = ucat[kp33][jp33][ip33].z; */
-      uinp.z =  (cv1 * cs1 + cv2 * cs2 + cv3 * cs3 );
-      }
-/*       uinp.z =  0.5*(cv1 * ct1 + cv2 * ct2 + cv3 * ct3 + */
-/* 		     cv11*ct11 + cv22*ct22 + cv33*ct33); */
-
-      if (elmt==184 || elmt==231){
-      PetscPrintf(PETSC_COMM_SELF, "intp u_z 1  %d %le %le %le %le %le %le %le\n",elmt,uinp.z,cv1,cv2,cv3,ct1,ct2,ct3);
-      PetscPrintf(PETSC_COMM_SELF, "intp u_z 11 %d %le %le %le %le %le %le %le\n",elmt,uinp.z,cv11,cv22,cv33,ct11,ct22,ct33);
-      }
-      cv1 = ( ibm->u[ibm->nv1[elmt]].x
-	     +ibm->u[ibm->nv2[elmt]].x 
-	     +ibm->u[ibm->nv3[elmt]].x)/3.;
-      cv2 = ( ibm->u[ibm->nv1[elmt]].y
-	     +ibm->u[ibm->nv2[elmt]].y
-	     +ibm->u[ibm->nv3[elmt]].y)/3.;
-      cv3 = ( ibm->u[ibm->nv1[elmt]].z
-	     +ibm->u[ibm->nv2[elmt]].z
-	     +ibm->u[ibm->nv3[elmt]].z)/3.;
-      
-      ns_x= ibm->ns_x[elmt];	
-      ns_y= ibm->ns_y[elmt];	
-      ns_z= ibm->ns_z[elmt];
-      
-      nt_x= ibm->nt_x[elmt];	
-      nt_y= ibm->nt_y[elmt];
-      nt_z= ibm->nt_z[elmt];
-      
-      nf_x= ibm->nf_x[elmt];	
-      nf_y= ibm->nf_y[elmt];
-      nf_z= ibm->nf_z[elmt];
-      
-      if (di>1e-10) {
-      elmtinfo[elmt].Tow_ws=    ((uinp.x-cv1)*ns_x + 
-				 (uinp.y-cv2)*ns_y +
-				 (uinp.z-cv3)*ns_z)/di;
-
-      elmtinfo[elmt].Tow_wt=    ((uinp.x-cv1)*nt_x + 
-				 (uinp.y-cv2)*nt_y +
-				 (uinp.z-cv3)*nt_z)/di;
-      
-      elmtinfo[elmt].Tow_wn=    ((uinp.x-cv1)*nf_x + 
-				 (uinp.y-cv2)*nf_y +
-				 (uinp.z-cv3)*nf_z)/di;
-      
-      } else {
-	PetscPrintf(PETSC_COMM_WORLD, "zero di %le ",di);
-      }      
-
-      if (elmt==184 || elmt==231) {
-/*       PetscPrintf(PETSC_COMM_SELF, "intp hosts di %d %d %d %d %d %d %d %d %d\n",ip1,jp1,kp1,ip2,jp2,kp2,ip3,jp3,kp3); */
-      PetscPrintf(PETSC_COMM_SELF, "intp hosts di %d %d %d %d %d %d %d %d %d\n",iip1,jjp1,kkp1,iip2,jjp2,kkp2,iip3,jjp3,kkp3);
-      PetscPrintf(PETSC_COMM_SELF, "intp hosts di %d %d %d %d %d %d %d %d %d\n",iip11,jjp11,kkp11,iip22,jjp22,kkp22,iip33,jjp33,kkp33);
-      PetscPrintf(PETSC_COMM_SELF, "intp Tow_t %d %le %le %le %le %le \n",elmt,elmtinfo[elmt].Tow_wt,uinp.x,uinp.y,uinp.z,di);
-      PetscPrintf(PETSC_COMM_SELF, "intp Tow_t %d %le %le %le %le %le \n",elmt,elmtinfo[elmt].Tow_wt,nt_x,nt_y,nt_z,di);
-      PetscPrintf(PETSC_COMM_SELF, "intp Tow_s %d %le %le %le %le %le \n",elmt,elmtinfo[elmt].Tow_ws,uinp.x,uinp.y,uinp.z,di);
-      PetscPrintf(PETSC_COMM_SELF, "intp Tow_s %d %le %le %le %le %le \n",elmt,elmtinfo[elmt].Tow_ws,ns_x,ns_y,ns_z,di);
-      }
-    }
-  }
-  }
-
+  
   PetscInt rank;
-  PetscInt n_v=ibm->n_v;
-  PetscInt ti=0;
   MPI_Comm_rank(PETSC_COMM_WORLD, &rank);
-  if (!rank) {
-    //if (ti == (ti/tiout)*tiout) {
-      FILE *f;
-      char filen[80];
-      sprintf(filen, "Stress%3.3d.dat",ti);
-      f = fopen(filen, "w");
-      PetscFPrintf(PETSC_COMM_WORLD, f, "Variables=x,y,z,tow_t,tow_s,p,n_x,n_y,n_z,nt_x,nt_y,nt_z,ns_x,ns_y,ns_z,di\n");
-      PetscFPrintf(PETSC_COMM_WORLD, f, "ZONE T='TRIANGLES', N=%d, E=%d, F=FEBLOCK, ET=TRIANGLE, VARLOCATION=([1-3]=NODAL,[4-16]=CELLCENTERED)\n", n_v, n_elmt);
-      for (i=0; i<n_v; i++) {
+ 
+  lxs = xs; lxe = xe;
+  lys = ys; lye = ye;
+  lzs = zs; lze = ze;
 
-	/*    ibm->x_bp[i] = ibm->x_bp0[i];
-	      ibm->y_bp[i] = ibm->y_bp0[i];
-	      ibm->z_bp[i] = ibm->z_bp0[i] + z0;*/
-	PetscFPrintf(PETSC_COMM_WORLD, f, "%e\n", ibm->x_bp[i]);
-      }
-      for (i=0; i<n_v; i++) {
-	PetscFPrintf(PETSC_COMM_WORLD, f, "%e\n", ibm->y_bp[i]);
-      }
-      for (i=0; i<n_v; i++) {	
-	PetscFPrintf(PETSC_COMM_WORLD, f, "%e\n", ibm->z_bp[i]);
-      }
-      for (i=0; i<n_elmt; i++) {
-	PetscFPrintf(PETSC_COMM_WORLD, f, "%e\n", elmtinfo[i].Tow_wt);
-      }
-      for (i=0; i<n_elmt; i++) {
-	PetscFPrintf(PETSC_COMM_WORLD, f, "%e\n", elmtinfo[i].Tow_ws);
-      }
-      for (i=0; i<n_elmt; i++) {
-	PetscFPrintf(PETSC_COMM_WORLD, f, "%e\n", elmtinfo[i].P);
-      }
-      for (i=0; i<n_elmt; i++) {
-	PetscFPrintf(PETSC_COMM_WORLD, f, "%e\n", ibm->nf_x[i]);
-      }
-      for (i=0; i<n_elmt; i++) {
-	PetscFPrintf(PETSC_COMM_WORLD, f, "%e\n", ibm->nf_y[i]);
-      }
-      for (i=0; i<n_elmt; i++) {
-	PetscFPrintf(PETSC_COMM_WORLD, f, "%e\n", ibm->nf_z[i]);
-      }
-      for (i=0; i<n_elmt; i++) {
-	PetscFPrintf(PETSC_COMM_WORLD, f, "%e\n", ibm->nt_x[i]);
-      }
-      for (i=0; i<n_elmt; i++) {
-	PetscFPrintf(PETSC_COMM_WORLD, f, "%e\n", ibm->nt_y[i]);
-      }
-      for (i=0; i<n_elmt; i++) {
-	PetscFPrintf(PETSC_COMM_WORLD, f, "%e\n", ibm->nt_z[i]);
-      }
-      for (i=0; i<n_elmt; i++) {
-	PetscFPrintf(PETSC_COMM_WORLD, f, "%e\n", ibm->ns_x[i]);
-      }
-      for (i=0; i<n_elmt; i++) {
-	PetscFPrintf(PETSC_COMM_WORLD, f, "%e\n", ibm->ns_y[i]);
-      }
-      for (i=0; i<n_elmt; i++) {
-	PetscFPrintf(PETSC_COMM_WORLD, f, "%e\n", ibm->ns_z[i]);
-      }
-      for (i=0; i<n_elmt; i++) {
-	PetscFPrintf(PETSC_COMM_WORLD, f, "%e\n", ibminfo[i].d_i);
-      }
+  if (xs==0) lxs = xs+1;
+  if (ys==0) lys = ys+1;
+  if (zs==0) lzs = zs+1;
 
-      for (i=0; i<n_elmt; i++) {
-	PetscFPrintf(PETSC_COMM_WORLD, f, "%d %d %d\n", ibm->nv1[i]+1, ibm->nv2[i]+1, ibm->nv3[i]+1);
-      }
-      fclose(f);
-      //}
-  }
+  if (xe==mx) lxe = xe-2;
+  if (ye==my) lye = ye-2;
+  if (ze==mz) lze = ze-2;
+   
+ 
+for (elmt=0; elmt<n_elmt; elmt++) {
+	P = 0;
+	Tow_ws = 0;
+	Tow_wt = 0;
+	Tow_wn = 0;
+	elmtinfo[elmt].P = 0;
+	elmtinfo[elmt].Tow_ws = 0;
+	elmtinfo[elmt].Tow_wt = 0;
+	elmtinfo[elmt].Tow_wn = 0;
+	  
+		if (elmtinfo[elmt].n_P>0  && elmtinfo[elmt].FoundAroundcell==1) {
+
+		ip1 = ibminfo[elmt].i1; jp1 = ibminfo[elmt].j1; kp1 = ibminfo[elmt].k1;
+		ip2 = ibminfo[elmt].i2; jp2 = ibminfo[elmt].j2; kp2 = ibminfo[elmt].k2;
+		ip3 = ibminfo[elmt].i3; jp3 = ibminfo[elmt].j3; kp3 = ibminfo[elmt].k3;
+
+		cr1 = ibminfo[elmt].cr1; cr2 = ibminfo[elmt].cr2; cr3 = ibminfo[elmt].cr3;
+		cs1 = ibminfo[elmt].cs1; cs2 = ibminfo[elmt].cs2; cs3 = ibminfo[elmt].cs3;
+
+		ip11 = ibminfo[elmt].i11; jp11 = ibminfo[elmt].j11; kp11 = ibminfo[elmt].k11;
+		ip22 = ibminfo[elmt].i22; jp22 = ibminfo[elmt].j22; kp22 = ibminfo[elmt].k22;
+		ip33 = ibminfo[elmt].i33; jp33 = ibminfo[elmt].j33; kp33 = ibminfo[elmt].k33;
+
+		cr11 = ibminfo[elmt].cr11; cr22 = ibminfo[elmt].cr22; cr33 = ibminfo[elmt].cr33;
+		cs11 = ibminfo[elmt].cs11; cs22 = ibminfo[elmt].cs22; cs33 = ibminfo[elmt].cs33;
+
+		iip1 = ibminfo[elmt].ii1; jjp1 = ibminfo[elmt].jj1; kkp1 = ibminfo[elmt].kk1;
+		iip2 = ibminfo[elmt].ii2; jjp2 = ibminfo[elmt].jj2; kkp2 = ibminfo[elmt].kk2;
+		iip3 = ibminfo[elmt].ii3; jjp3 = ibminfo[elmt].jj3; kkp3 = ibminfo[elmt].kk3;
+
+		iip11 = ibminfo[elmt].ii11; jjp11 = ibminfo[elmt].jj11; kkp11 = ibminfo[elmt].kk11;
+		iip22 = ibminfo[elmt].ii22; jjp22 = ibminfo[elmt].jj22; kkp22 = ibminfo[elmt].kk22;
+		iip33 = ibminfo[elmt].ii33; jjp33 = ibminfo[elmt].jj33; kkp33 = ibminfo[elmt].kk33;
+
+		ct1 = ibminfo[elmt].ct1; ct2 = ibminfo[elmt].ct2; ct3 = ibminfo[elmt].ct3;
+		ct11 = ibminfo[elmt].ct11; ct22 = ibminfo[elmt].ct22; ct33 = ibminfo[elmt].ct33;
+
+		i = elmtinfo[elmt].icell;
+		j = elmtinfo[elmt].jcell;
+		k = elmtinfo[elmt].kcell;
+
+		//  if (i>=xs && i<xe && j>=ys && j<ye && k>=zs && k<ze) {
+			if (i>=lxs && i<lxe && j>=lys && j<lye && k>=lzs && k<lze) {    
+			
+			//if (elmt==672 || elmt==759) PetscPrintf(PETSC_COMM_SELF, "rank=%d; elmt = %d; lxs=%d; lxe=%d; lys=%d; lye=%d; lzs=%d; lze=%d; \n",rank, elmt, lxs, lxe, lys, lye, lzs, lze);
+			//if (elmt==672 || elmt==759) PetscPrintf(PETSC_COMM_SELF, "rank=%d; elmt = %d; kp1=%d; kp2=%d; kp3=%d; jp1=%d; jp2=%d; jp3=%d; ip1=%d; ip2=%d; ip3=%d; \n",rank,elmt, kp1, kp2, kp3, jp1, jp2, jp3, ip1, ip2, ip3);	
+			//if (elmt==672 || elmt==759) PetscPrintf(PETSC_COMM_SELF, "rank=%d; elmt = %d; kkp1=%d; kkp2=%d; kkp3=%d; jjp1=%d; jjp2=%d; jjp3=%d; iip1=%d; iip2=%d; iip3=%d; \n", rank, elmt, kkp1, kkp2, kkp3, jjp1, jjp2, jjp3, iip1, iip2, iip3);
+			
+				cv1 = p[kp1][jp1][ip1];
+				cv2 = p[kp2][jp2][ip2];
+				cv3 = p[kp3][jp3][ip3];
+				P = cv1 * cr1 + cv2 * cr2 + cv3 * cr3 ;
+			/*
+				if (elmtinfo[elmt].Need3rdPoint==1 && elmtinfo[elmt].FoundAround2ndCell==1) {
+
+					//c1 = cr1; c2 = cr2; c3 = cr3;	
+					//c1 = cs1; c2 = cs2; c3 = cs3;	
+					c1 = ct1; c2 = ct2; c3 = ct3;
+					
+					cv1 = ucat[kkp1][jjp1][iip1].x;
+					cv2 = ucat[kkp2][jjp2][iip2].x;
+					cv3 = ucat[kkp3][jjp3][iip3].x;
+
+					cv1 = ucat[kp1][jp1][ip1].x;
+					cv2 = ucat[kp2][jp2][ip2].x;
+					cv3 = ucat[kp3][jp3][ip3].x;
+					
+					uinp.x = (cv1 * c1 + cv2 * c2 + cv3 * c3 );
+					if (elmt==672 || elmt==759) PetscPrintf(PETSC_COMM_SELF, "3rdP intp u_x %d %le %le %le %le; c1=%le c2=%le c3=%le\n",elmt,uinp.x,cv1,cv2,cv3,c1,c2,c3);			
+
+					cv1 = ucat[kkp1][jjp1][iip1].y;
+					cv2 = ucat[kkp2][jjp2][iip2].y;
+					cv3 = ucat[kkp3][jjp3][iip3].y;
+					
+					cv1 = ucat[kp1][jp1][ip1].y;
+					cv2 = ucat[kp2][jp2][ip2].y;
+					cv3 = ucat[kp3][jp3][ip3].y;			
+					
+					uinp.y = (cv1 * c1 + cv2 * c2 + cv3 * c3 );
+					if (elmt==672 || elmt==759) PetscPrintf(PETSC_COMM_SELF, "3rdP intp u_y %d %le %le %le %le c1=%le c2=%le c3=%le\n",elmt,uinp.y,cv1,cv2,cv3,c1,c2,c3);		
+				
+					cv1 = ucat[kkp1][jjp1][iip1].z;
+					cv2 = ucat[kkp2][jjp2][iip2].z;
+					cv3 = ucat[kkp3][jjp3][iip3].z;
+
+					cv1 = ucat[kp1][jp1][ip1].z;
+					cv2 = ucat[kp2][jp2][ip2].z;
+					cv3 = ucat[kp3][jp3][ip3].z;				
+					
+					uinp.z = (cv1 * c1 + cv2 * c2 + cv3 * c3 );
+					if (elmt==672 || elmt==759) PetscPrintf(PETSC_COMM_SELF, "3rdP intp u_z %d %le %le %le %le c1=%le c2=%le c3=%le\n",elmt,uinp.z,cv1,cv2,cv3,c1,c2,c3);		
+
+					di = ibminfo[elmt].d_i + ibminfo[elmt].d_s;						
+					
+				}else{
+					cv1 = ucat[kp1][jp1][ip1].x;
+					cv2 = ucat[kp2][jp2][ip2].x;
+					cv3 = ucat[kp3][jp3][ip3].x;
+					//uinp.x = (cv1 * cs1 + cv2 * cs2 + cv3 * cs3 );
+					uinp.x = (cv1 * cr1 + cv2 * cr2 + cv3 * cr3 );
+					if (elmt==672 || elmt==759) PetscPrintf(PETSC_COMM_SELF, "intp u_x %d %le %le %le %le\n",elmt,uinp.x,cv1,cv2,cv3);			
+
+					cv1 = ucat[kp1][jp1][ip1].y;
+					cv2 = ucat[kp2][jp2][ip2].y;
+					cv3 = ucat[kp3][jp3][ip3].y;
+					//uinp.y =  (cv1 * cs1 + cv2 * cs2 + cv3 * cs3 );
+					uinp.y = (cv1 * cr1 + cv2 * cr2 + cv3 * cr3 );
+					if (elmt==672 || elmt==759) PetscPrintf(PETSC_COMM_SELF, "intp u_y %d %le %le %le %le\n",elmt,uinp.y,cv1,cv2,cv3);			
+				
+					cv1 = ucat[kp1][jp1][ip1].z;
+					cv2 = ucat[kp2][jp2][ip2].z;
+					cv3 = ucat[kp3][jp3][ip3].z;
+					//uinp.z =  (cv1 * cs1 + cv2 * cs2 + cv3 * cs3 );
+					uinp.z = (cv1 * cr1 + cv2 * cr2 + cv3 * cr3 );
+					if (elmt==672 || elmt==759) PetscPrintf(PETSC_COMM_SELF, "intp u_z %d %le %le %le %le\n",elmt,uinp.z,cv1,cv2,cv3);
+					
+					di = ibminfo[elmt].d_i;
+				}
+				*/
+			di = 1;
+			uinp.x = 0;
+			uinp.y = 0;
+			uinp.z = 0;
+			
+			
+			// Commented by ASR
+			//cv1 = ( ibm->u[ibm->nv1[elmt]].x + ibm->u[ibm->nv2[elmt]].x + ibm->u[ibm->nv3[elmt]].x)/3.;
+			//cv2 = ( ibm->u[ibm->nv1[elmt]].y + ibm->u[ibm->nv2[elmt]].y + ibm->u[ibm->nv3[elmt]].y)/3.;
+			//cv3 = ( ibm->u[ibm->nv1[elmt]].z + ibm->u[ibm->nv2[elmt]].z + ibm->u[ibm->nv3[elmt]].z)/3.;
+			
+			sv1 = ( ibm->u[ibm->nv1[elmt]].x + ibm->u[ibm->nv2[elmt]].x + ibm->u[ibm->nv3[elmt]].x)/3.;
+			sv2 = ( ibm->u[ibm->nv1[elmt]].y + ibm->u[ibm->nv2[elmt]].y + ibm->u[ibm->nv3[elmt]].y)/3.;
+			sv3 = ( ibm->u[ibm->nv1[elmt]].z + ibm->u[ibm->nv2[elmt]].z + ibm->u[ibm->nv3[elmt]].z)/3.;
+		
+			ns_x= ibm->ns_x[elmt];
+			ns_y= ibm->ns_y[elmt];	
+			ns_z= ibm->ns_z[elmt];
+			nt_x= ibm->nt_x[elmt];
+			nt_y= ibm->nt_y[elmt];
+			nt_z= ibm->nt_z[elmt];
+			nf_x= ibm->nf_x[elmt];	
+			nf_y= ibm->nf_y[elmt];
+			nf_z= ibm->nf_z[elmt];
+
+			if (di>1e-10) {
+				Tow_ws = ((uinp.x-sv1)*ns_x + (uinp.y-sv2)*ns_y + (uinp.z-sv3)*ns_z)/di;
+				Tow_wt = ((uinp.x-sv1)*nt_x + (uinp.y-sv2)*nt_y + (uinp.z-sv3)*nt_z)/di;
+				Tow_wn = ((uinp.x-sv1)*nf_x + (uinp.y-sv2)*nf_y + (uinp.z-sv3)*nf_z)/di;
+			} 
+			else {
+				PetscPrintf(PETSC_COMM_SELF, "very small di %le for elmt %d",di,elmt);
+				Tow_ws = 0;
+				Tow_wt = 0;
+				Tow_wn = 0;
+			}
+			
+			}
+		}
+		/*
+		MPI_Allreduce (&P, &elmtinfo[elmt].P, 1, MPI_DOUBLE, MPI_SUM, PETSC_COMM_WORLD); 
+		MPI_Allreduce (&Tow_ws, &elmtinfo[elmt].Tow_ws, 1, MPI_DOUBLE, MPI_SUM, PETSC_COMM_WORLD);
+		MPI_Allreduce (&Tow_wt, &elmtinfo[elmt].Tow_wt, 1, MPI_DOUBLE, MPI_SUM, PETSC_COMM_WORLD);
+		MPI_Allreduce (&Tow_wn, &elmtinfo[elmt].Tow_wn, 1, MPI_DOUBLE, MPI_SUM, PETSC_COMM_WORLD);
+		*/
+		
+		PetscGlobalSum (&P, &elmtinfo[elmt].P,PETSC_COMM_WORLD); 
+//		PetscGlobalSum (&di, &ibminfo[elmt].d_i,PETSC_COMM_WORLD);
+		PetscGlobalSum (&Tow_ws, &elmtinfo[elmt].Tow_ws,PETSC_COMM_WORLD);
+		PetscGlobalSum (&Tow_wt, &elmtinfo[elmt].Tow_wt,PETSC_COMM_WORLD);
+		PetscGlobalSum (&Tow_wn, &elmtinfo[elmt].Tow_wn,PETSC_COMM_WORLD);	
+		
+		
+		if(elmt == 672 || elmt == 759){
+		//PetscPrintf(PETSC_COMM_SELF, "ASR 1 rank=%d; elmt=%d; FoundAroundcell=%d; Tow_ws=%f; Tow_wt=%f; Tow_wn=%f; Tow_ws_sum=%f; Tow_wt_sum=%f; Tow_wn_sum=%f; di=%f; P=%f; P_sum=%f\n", rank, elmt, elmtinfo[elmt].FoundAroundcell, Tow_ws, Tow_wt, Tow_wn, elmtinfo[elmt].Tow_ws, elmtinfo[elmt].Tow_wt, elmtinfo[elmt].Tow_wn, ibminfo[elmt].d_i,P,elmtinfo[elmt].P);
+		//PetscPrintf(PETSC_COMM_SELF, "ASR 1 rank=%d cr1=%f; cr2=%f; cr3=%f; cv1=%f; cv2=%f; cv3=%f; sv1=%f; sv2=%f; sv3=%f; uinp.x=%f; uinp.y=%f; uinp.z=%f;\n",rank,cr1,cr2,cr3,cv1,cv2,cv3,sv1,sv2,sv3,uinp.x,uinp.y,uinp.z);
+		//PetscPrintf(PETSC_COMM_SELF, "ASR 1 rank=%d nsx=%f; nsy=%f; nsz=%f; ntx=%f; nty=%f; ntz=%f; nfx=%f; nfy=%f; nfz=%f;\n",rank,ns_x,ns_y,ns_z,nt_x,nt_y,nt_z,nf_x,nf_y,nf_z);
+		//PetscPrintf(PETSC_COMM_SELF, "rank=%d cr1=%f; cr2=%f; cr3=%f; cv1=%f; cv2=%f; cv3=%f;\n",rank,uinp.x,uinp.y,uinp.z,cv1,cv2,cv3);
+		}		
+		
+		
+	}
+		PetscPrintf(PETSC_COMM_WORLD, " Printing IBM Data ");
+		PetscInt n_v=ibm->n_v;
+	  if (!rank) {
+		  FILE *f;
+		  char filen[80];
+		  sprintf(filen, "Stress_Calc_fsi_surf_stress2_%05d.dat",ti);
+		  f = fopen(filen, "w");
+		  
+		  PetscFPrintf(PETSC_COMM_WORLD, f, "TITLE=\"3D TRIANGULAR SURFACE DATA\"\n");
+		  PetscFPrintf(PETSC_COMM_WORLD, f, "Variables=\"x\",\"y\",\"z\",\"tow_t\",\"tow_s\",\"tow_n\",\"p\",\"n_p\",\"FoundAroundcell\",\"rank\",\"nf_x\",\"nf_y\",\"nf_z\",\"nt_x\",\"nt_y\",\"nt_z\",\"ns_x\",\"ns_y\",\"ns_z\",\"di\"\n");
+		  PetscFPrintf(PETSC_COMM_WORLD, f, "ZONE T=\"TRIANGLES\", N=%d, E=%d, F=FEBLOCK, ET=TRIANGLE, VARLOCATION=([1-3]=NODAL,[4-20]=CELLCENTERED)\n", n_v, n_elmt);
+		  for (i=0; i<n_v; i++) {
+		PetscFPrintf(PETSC_COMM_WORLD, f, "%e\n", ibm->x_bp[i]);
+		  }//PetscFPrintf(PETSC_COMM_WORLD, f, "\n");
+		  for (i=0; i<n_v; i++) {
+		PetscFPrintf(PETSC_COMM_WORLD, f, "%e\n", ibm->y_bp[i]);
+		  }//PetscFPrintf(PETSC_COMM_WORLD, f, "\n");
+		  for (i=0; i<n_v; i++) {	
+		PetscFPrintf(PETSC_COMM_WORLD, f, "%e\n", ibm->z_bp[i]);
+		  }//PetscFPrintf(PETSC_COMM_WORLD, f, "\n");
+		  for (i=0; i<n_elmt; i++) {
+		PetscFPrintf(PETSC_COMM_WORLD, f, "%e\n", elmtinfo[i].Tow_wt);
+		  }//PetscFPrintf(PETSC_COMM_WORLD, f, "\n");
+		  for (i=0; i<n_elmt; i++) {
+		PetscFPrintf(PETSC_COMM_WORLD, f, "%e\n", elmtinfo[i].Tow_ws);
+		  }//PetscFPrintf(PETSC_COMM_WORLD, f, "\n");
+		  for (i=0; i<n_elmt; i++) {
+		PetscFPrintf(PETSC_COMM_WORLD, f, "%e\n", elmtinfo[i].Tow_wn);
+		  }//PetscFPrintf(PETSC_COMM_WORLD, f, "\n");
+		  for (i=0; i<n_elmt; i++) {
+		PetscFPrintf(PETSC_COMM_WORLD, f, "%e\n", elmtinfo[i].P);  	
+		}//PetscFPrintf(PETSC_COMM_WORLD, f, "\n");
+		for (i=0; i<n_elmt; i++) {
+		PetscFPrintf(PETSC_COMM_WORLD, f, "%d\n", elmtinfo[i].n_P);
+		  }//PetscFPrintf(PETSC_COMM_WORLD, f, "\n");
+		for (i=0; i<n_elmt; i++) {
+		PetscFPrintf(PETSC_COMM_WORLD, f, "%d\n", elmtinfo[i].FoundAroundcell);
+		  }//PetscFPrintf(PETSC_COMM_WORLD, f, "\n");
+		for (i=0; i<n_elmt; i++) {
+			PetscFPrintf(PETSC_COMM_WORLD, f, "%d\n", 0);
+		  }//PetscFPrintf(PETSC_COMM_WORLD, f, "\n");
+		  for (i=0; i<n_elmt; i++) {
+		PetscFPrintf(PETSC_COMM_WORLD, f, "%e\n", ibm->nf_x[i]);
+		  }//PetscFPrintf(PETSC_COMM_WORLD, f, "\n");
+		  for (i=0; i<n_elmt; i++) {
+		PetscFPrintf(PETSC_COMM_WORLD, f, "%e\n", ibm->nf_y[i]);
+		  }//PetscFPrintf(PETSC_COMM_WORLD, f, "\n");
+		  for (i=0; i<n_elmt; i++) {
+		PetscFPrintf(PETSC_COMM_WORLD, f, "%e\n", ibm->nf_z[i]);
+		  }//PetscFPrintf(PETSC_COMM_WORLD, f, "\n");
+		  for (i=0; i<n_elmt; i++) {
+		PetscFPrintf(PETSC_COMM_WORLD, f, "%e\n", ibm->nt_x[i]);
+		  }//PetscFPrintf(PETSC_COMM_WORLD, f, "\n");
+		  for (i=0; i<n_elmt; i++) {
+		PetscFPrintf(PETSC_COMM_WORLD, f, "%e\n", ibm->nt_y[i]);
+		  }//PetscFPrintf(PETSC_COMM_WORLD, f, "\n");
+		  for (i=0; i<n_elmt; i++) {
+		PetscFPrintf(PETSC_COMM_WORLD, f, "%e\n", ibm->nt_z[i]);
+		  }//PetscFPrintf(PETSC_COMM_WORLD, f, "\n");
+		  for (i=0; i<n_elmt; i++) {
+		PetscFPrintf(PETSC_COMM_WORLD, f, "%e\n", ibm->ns_x[i]);
+		  }//PetscFPrintf(PETSC_COMM_WORLD, f, "\n");
+		  for (i=0; i<n_elmt; i++) {
+		PetscFPrintf(PETSC_COMM_WORLD, f, "%e\n", ibm->ns_y[i]);
+		  }//PetscFPrintf(PETSC_COMM_WORLD, f, "\n");
+		  for (i=0; i<n_elmt; i++) {
+		PetscFPrintf(PETSC_COMM_WORLD, f, "%e\n", ibm->ns_z[i]);
+		  }//PetscFPrintf(PETSC_COMM_WORLD, f, "\n");
+		  for (i=0; i<n_elmt; i++) {
+		PetscFPrintf(PETSC_COMM_WORLD, f, "%e\n", ibminfo[i].d_i);
+		  }//PetscFPrintf(PETSC_COMM_WORLD, f, "\n");
+		  for (i=0; i<n_elmt; i++) {
+		PetscFPrintf(PETSC_COMM_WORLD, f, "%d %d %d\n", ibm->nv1[i]+1, ibm->nv2[i]+1, ibm->nv3[i]+1);
+		  }
+		  fclose(f);
+		  //}
+	  }
 
   DAVecRestoreArray(da, user->lNvert, &nvert);
   DAVecRestoreArray(fda, user->lUcat, &ucat);
@@ -3144,7 +3919,7 @@ PetscErrorCode Calc_fsi_surf_stress_advanced(IBMInfo *ibminfo, UserCtx *user, IB
   for (elmt=0; elmt<n_elmt; elmt++) {
     //PetscPrintf(PETSC_COMM_SELF, "n_P %d\n",ibm->n_P[elmt]);
     
-  if (elmtinfo[elmt].n_P>0  && elmtinfo[elmt].FoundAroundcell>0) {
+  if (elmtinfo[elmt].n_P>0  && elmtinfo[elmt].FoundAroundcell==1) {
     ip1 = ibminfo[elmt].i1; jp1 = ibminfo[elmt].j1; kp1 = ibminfo[elmt].k1;
     ip2 = ibminfo[elmt].i2; jp2 = ibminfo[elmt].j2; kp2 = ibminfo[elmt].k2;
     ip3 = ibminfo[elmt].i3; jp3 = ibminfo[elmt].j3; kp3 = ibminfo[elmt].k3;
@@ -3258,21 +4033,18 @@ PetscErrorCode Calc_fsi_surf_stress_advanced(IBMInfo *ibminfo, UserCtx *user, IB
 /*       } */
       
       if (elmtinfo[elmt].Need3rdPoint) {
-      cv1 = p[kkp1][jjp1][iip1];
-      cv2 = p[kkp2][jjp2][iip2];
-      cv3 = p[kkp3][jjp3][iip3];
-      elmtinfo[elmt].P = cv1 * ct1 + cv2 * ct2 + cv3 * ct3 ;
+		  cv1 = p[kkp1][jjp1][iip1];
+		  cv2 = p[kkp2][jjp2][iip2];
+		  cv3 = p[kkp3][jjp3][iip3];
+		  elmtinfo[elmt].P = cv1 * ct1 + cv2 * ct2 + cv3 * ct3 ;
       } else {
-
-      cv1 = p[kp1][jp1][ip1];
-      cv2 = p[kp2][jp2][ip2];
-      cv3 = p[kp3][jp3][ip3];
-      cv11 = p[kp11][jp11][ip11];
-      cv22 = p[kp22][jp22][ip22];
-      cv33 = p[kp33][jp33][ip33];
-
-      elmtinfo[elmt].P= 0.5*(cv1 * cr1 + cv2 * cr2 + cv3 * cr3 +
-			     cv11*cr11 + cv22*cr22 + cv33*cr33);
+		  cv1 = p[kp1][jp1][ip1];
+		  cv2 = p[kp2][jp2][ip2];
+		  cv3 = p[kp3][jp3][ip3];
+		  cv11 = p[kp11][jp11][ip11];
+		  cv22 = p[kp22][jp22][ip22];
+		  cv33 = p[kp33][jp33][ip33];
+		  elmtinfo[elmt].P= 0.5*(cv1 * cr1 + cv2 * cr2 + cv3 * cr3 + cv11*cr11 + cv22*cr22 + cv33*cr33);
       }
 /*       if (i==1) */
 /*       	PetscPrintf(PETSC_COMM_SELF, "intp P %d %le %le %le %le %le %le %le %le\n",elmt,elmtinfo[elmt].P,cr1,cr2,cr3,cv1,cv2,cv3,di); */
@@ -3290,8 +4062,7 @@ PetscErrorCode Calc_fsi_surf_stress_advanced(IBMInfo *ibminfo, UserCtx *user, IB
       uinp.x = (cv1 * cs1 + cv2 * cs2 + cv3 * cs3);
 /*       uinp.x = 0.5*(cv1 * cs1 + cv2 * cs2 + cv3 * cs3 + */
 /* 		    cv11*cs11 + cv22*cs22 + cv33*cs33); */
-      if (elmt==1124 || elmt==1110 || elmt==1395 || elmt==1179) 
-	PetscPrintf(PETSC_COMM_SELF, "intp u_x %d %le %le %le %le\n",elmt,uinp.x,cv1,cv2,cv3);
+      if (elmt==1124 || elmt==1110 || elmt==1395 || elmt==1179) PetscPrintf(PETSC_COMM_SELF, "intp u_x %d %le %le %le %le\n",elmt,uinp.x,cv1,cv2,cv3);
 
       cv1 = ucat[kp1][jp1][ip1].y;
       cv2 = ucat[kp2][jp2][ip2].y;
@@ -3303,8 +4074,7 @@ PetscErrorCode Calc_fsi_surf_stress_advanced(IBMInfo *ibminfo, UserCtx *user, IB
       uinp.y = (cv1 * cs1 + cv2 * cs2 + cv3 * cs3);
 /*       uinp.y =  0.5*(cv1 * cs1 + cv2 * cs2 + cv3 * cs3 + */
 /* 		     cv11*cs11 + cv22*cs22 + cv33*cs33); */
-      if (elmt==1124 || elmt==1110 || elmt==1395 || elmt==1179) 
-	PetscPrintf(PETSC_COMM_SELF, "intp u_y %d %le %le %le %le\n",elmt,uinp.y,cv1,cv2,cv3);
+      if (elmt==1124 || elmt==1110 || elmt==1395 || elmt==1179) 	PetscPrintf(PETSC_COMM_SELF, "intp u_y %d %le %le %le %le\n",elmt,uinp.y,cv1,cv2,cv3);
 
       cv1 = ucat[kp1][jp1][ip1].z;
       cv2 = ucat[kp2][jp2][ip2].z;
@@ -3316,8 +4086,7 @@ PetscErrorCode Calc_fsi_surf_stress_advanced(IBMInfo *ibminfo, UserCtx *user, IB
       uinp.z = (cv1 * cs1 + cv2 * cs2 + cv3 * cs3);
 /*       uinp.z =  0.5*(cv1 * cs1 + cv2 * cs2 + cv3 * cs3 + */
 /* 		     cv11*cs11 + cv22*cs22 + cv33*cs33); */
-      if (elmt==1124 || elmt==1110 || elmt==1395 || elmt==1179) 
-	PetscPrintf(PETSC_COMM_SELF, "intp u_z %d %le %le %le %le\n",elmt,uinp.z,cv1,cv2,cv3);
+      if (elmt==1124 || elmt==1110 || elmt==1395 || elmt==1179) 	PetscPrintf(PETSC_COMM_SELF, "intp u_z %d %le %le %le %le\n",elmt,uinp.z,cv1,cv2,cv3);
 
       // 2nd pt
       cv1 = ucat[kkp1][jjp1][iip1].x;
@@ -3330,8 +4099,7 @@ PetscErrorCode Calc_fsi_surf_stress_advanced(IBMInfo *ibminfo, UserCtx *user, IB
 /*       uinp2.x = 0.5*(cv1 * ct1 + cv2 * ct2 + cv3 * ct3 + */
 /* 		    cv11*ct11 + cv22*ct22 + cv33*ct33); */
       uinp2.x = cv1 * ct1 + cv2 * ct2 + cv3 * ct3 ;
-      if (elmt==1124 || elmt==1110 || elmt==1395 || elmt==1179) 
-      PetscPrintf(PETSC_COMM_SELF, "intp 2 u_x %d %le %le %le %le\n",elmt,uinp2.x,cv1,cv2,cv3);
+      if (elmt==1124 || elmt==1110 || elmt==1395 || elmt==1179)       PetscPrintf(PETSC_COMM_SELF, "intp 2 u_x %d %le %le %le %le\n",elmt,uinp2.x,cv1,cv2,cv3);
 
 
       cv1 = ucat[kkp1][jjp1][iip1].y;
@@ -3344,8 +4112,7 @@ PetscErrorCode Calc_fsi_surf_stress_advanced(IBMInfo *ibminfo, UserCtx *user, IB
 /*       uinp2.y =  0.5*(cv1 * ct1 + cv2 * ct2 + cv3 * ct3 + */
 /* 		     cv11*ct11 + cv22*ct22 + cv33*ct33); */
       uinp2.y =  cv1 * ct1 + cv2 * ct2 + cv3 * ct3 ;
-      if (elmt==1124 || elmt==1110 || elmt==1395 || elmt==1179) 
-      PetscPrintf(PETSC_COMM_SELF, "intp 2 u_y %d %le %le %le %le\n",elmt,uinp2.y,cv1,cv2,cv3);
+      if (elmt==1124 || elmt==1110 || elmt==1395 || elmt==1179)       PetscPrintf(PETSC_COMM_SELF, "intp 2 u_y %d %le %le %le %le\n",elmt,uinp2.y,cv1,cv2,cv3);
 
       cv1 = ucat[kkp1][jjp1][iip1].z;
       cv2 = ucat[kkp2][jjp2][iip2].z;
@@ -3357,8 +4124,7 @@ PetscErrorCode Calc_fsi_surf_stress_advanced(IBMInfo *ibminfo, UserCtx *user, IB
 /*       uinp2.z =  0.5*(cv1 * ct1 + cv2 * ct2 + cv3 * ct3 + */
 /* 		     cv11*ct11 + cv22*ct22 + cv33*ct33); */
       uinp2.z =  cv1 * ct1 + cv2 * ct2 + cv3 * ct3 ;
-      if (elmt==1124 || elmt==1110 || elmt==1395 || elmt==1179) 
-      PetscPrintf(PETSC_COMM_SELF, "intp 2 u_z %d %le %le %le %le\n",elmt,uinp2.z,cv1,cv2,cv3);
+      if (elmt==1124 || elmt==1110 || elmt==1395 || elmt==1179)       PetscPrintf(PETSC_COMM_SELF, "intp 2 u_z %d %le %le %le %le\n",elmt,uinp2.z,cv1,cv2,cv3);
 
       // 3rd pt
 /*       cv1 = ucat[kkp1][jjp1][iip1].x; */
@@ -3369,8 +4135,7 @@ PetscErrorCode Calc_fsi_surf_stress_advanced(IBMInfo *ibminfo, UserCtx *user, IB
       cv33 = ucat[kkp33][jjp33][iip33].x;
 
       uinp3.x = (cv11*ct11 + cv22*ct22 + cv33*ct33);
-      if (elmt==1124 || elmt==1110 || elmt==1395 || elmt==1179) 
-      PetscPrintf(PETSC_COMM_SELF, "intp 3 u_x %d %le %le %le %le\n",elmt,uinp3.x,cv1,cv2,cv3);
+      if (elmt==1124 || elmt==1110 || elmt==1395 || elmt==1179)       PetscPrintf(PETSC_COMM_SELF, "intp 3 u_x %d %le %le %le %le\n",elmt,uinp3.x,cv1,cv2,cv3);
 
 /*       cv1 = ucat[kkp1][jjp1][iip1].y; */
 /*       cv2 = ucat[kkp2][jjp2][iip2].y; */
@@ -3380,8 +4145,7 @@ PetscErrorCode Calc_fsi_surf_stress_advanced(IBMInfo *ibminfo, UserCtx *user, IB
       cv33 = ucat[kkp33][jjp33][iip33].y;
 
       uinp3.y = (cv11*ct11 + cv22*ct22 + cv33*ct33);
-      if (elmt==1124 || elmt==1110 || elmt==1395 || elmt==1179) 
-      PetscPrintf(PETSC_COMM_SELF, "intp 3 u_y %d %le %le %le %le\n",elmt,uinp3.y,cv1,cv2,cv3);
+      if (elmt==1124 || elmt==1110 || elmt==1395 || elmt==1179)       PetscPrintf(PETSC_COMM_SELF, "intp 3 u_y %d %le %le %le %le\n",elmt,uinp3.y,cv1,cv2,cv3);
 
 /*       cv1 = ucat[kkp1][jjp1][iip1].z; */
 /*       cv2 = ucat[kkp2][jjp2][iip2].z; */
@@ -3391,20 +4155,13 @@ PetscErrorCode Calc_fsi_surf_stress_advanced(IBMInfo *ibminfo, UserCtx *user, IB
       cv33 = ucat[kkp33][jjp33][iip33].z;
 
       uinp3.z = (cv11*ct11 + cv22*ct22 + cv33*ct33);
-      if (elmt==1124 || elmt==1110 || elmt==1395 || elmt==1179) 
-      PetscPrintf(PETSC_COMM_SELF, "intp 3 u_z %d %le %le %le %le\n",elmt,uinp3.z,cv1,cv2,cv3);
+      if (elmt==1124 || elmt==1110 || elmt==1395 || elmt==1179)       PetscPrintf(PETSC_COMM_SELF, "intp 3 u_z %d %le %le %le %le\n",elmt,uinp3.z,cv1,cv2,cv3);
       
 /*       PetscPrintf(PETSC_COMM_SELF, "intp u_z %d %le %le %le %le\n",elmt,uinp.z,cv1,cv2,cv3); */
 	
-      cv1 = ( ibm->u[ibm->nv1[elmt]].x
-	     +ibm->u[ibm->nv2[elmt]].x 
-	     +ibm->u[ibm->nv3[elmt]].x)/3.;
-      cv2 = ( ibm->u[ibm->nv1[elmt]].y
-	     +ibm->u[ibm->nv2[elmt]].y
-	     +ibm->u[ibm->nv3[elmt]].y)/3.;
-      cv3 = ( ibm->u[ibm->nv1[elmt]].z
-	     +ibm->u[ibm->nv2[elmt]].z
-	     +ibm->u[ibm->nv3[elmt]].z)/3.;
+      cv1 = ( ibm->u[ibm->nv1[elmt]].x + ibm->u[ibm->nv2[elmt]].x + ibm->u[ibm->nv3[elmt]].x)/3.;
+      cv2 = ( ibm->u[ibm->nv1[elmt]].y + ibm->u[ibm->nv2[elmt]].y + ibm->u[ibm->nv3[elmt]].y)/3.;
+      cv3 = ( ibm->u[ibm->nv1[elmt]].z + ibm->u[ibm->nv2[elmt]].z + ibm->u[ibm->nv3[elmt]].z)/3.;
      
       ns_x= ibm->ns_x[elmt];	
       ns_y= ibm->ns_y[elmt];	
@@ -3430,21 +4187,19 @@ PetscErrorCode Calc_fsi_surf_stress_advanced(IBMInfo *ibminfo, UserCtx *user, IB
       
       phia= cv1*ns_x + cv2*ns_y + cv3*ns_z;
       if (elmtinfo[elmt].Need3rdPoint) {
-	phib= uinp2.x*ns_x + uinp2.y*ns_y + uinp2.z*ns_z;
-	phic= uinp3.x*ns_x + uinp3.y*ns_y + uinp3.z*ns_z;
-	elmtinfo[elmt].Tow_ws = ( -(phib-phia)*sd*sd + (phic-phia)*di*di )
-	                        /( di*di* sd - sd*sd * di);
+		phib= uinp2.x*ns_x + uinp2.y*ns_y + uinp2.z*ns_z;
+		phic= uinp3.x*ns_x + uinp3.y*ns_y + uinp3.z*ns_z;
+		elmtinfo[elmt].Tow_ws = ( -(phib-phia)*sd*sd + (phic-phia)*di*di )/( di*di* sd - sd*sd * di);
 
       } else {
-	phib= uinp.x*ns_x + uinp.y*ns_y + uinp.z*ns_z;
-	phic= uinp2.x*ns_x + uinp2.y*ns_y + uinp2.z*ns_z;
-	phid= uinp3.x*nt_x + uinp3.y*nt_y + uinp3.z*nt_z;
-	rhs_l[0][0] = phib-phia;
-	rhs_l[1][0] = phic-phia;
-	rhs_l[2][0] = phid-phia;
-/* 	elmtinfo[elmt].Tow_ws = detmnt(rhs_l)/dtm; */
-	elmtinfo[elmt].Tow_ws = ( -(phib-phia)*sd*sd + (phic-phia)*di*di )
-	                        /( di*di* sd - sd*sd * di);
+		phib= uinp.x*ns_x + uinp.y*ns_y + uinp.z*ns_z;
+		phic= uinp2.x*ns_x + uinp2.y*ns_y + uinp2.z*ns_z;
+		phid= uinp3.x*nt_x + uinp3.y*nt_y + uinp3.z*nt_z;
+		rhs_l[0][0] = phib-phia;
+		rhs_l[1][0] = phic-phia;
+		rhs_l[2][0] = phid-phia;
+	/* 	elmtinfo[elmt].Tow_ws = detmnt(rhs_l)/dtm; */
+		elmtinfo[elmt].Tow_ws = ( -(phib-phia)*sd*sd + (phic-phia)*di*di )/( di*di* sd - sd*sd * di);
       }
 
       nt_x= ibm->nt_x[elmt];	
@@ -3453,21 +4208,19 @@ PetscErrorCode Calc_fsi_surf_stress_advanced(IBMInfo *ibminfo, UserCtx *user, IB
 
       phia= cv1*nt_x + cv2*nt_y + cv3*nt_z;
       if (elmtinfo[elmt].Need3rdPoint) {
-	phib= uinp2.x*nt_x + uinp2.y*nt_y + uinp2.z*nt_z;
-	phic= uinp3.x*nt_x + uinp3.y*nt_y + uinp3.z*nt_z;
-	elmtinfo[elmt].Tow_wt = ( -(phib-phia)*sd*sd + (phic-phia)*di*di )
-	                          /( di*di* sd - sd*sd * di);
+		phib= uinp2.x*nt_x + uinp2.y*nt_y + uinp2.z*nt_z;
+		phic= uinp3.x*nt_x + uinp3.y*nt_y + uinp3.z*nt_z;
+		elmtinfo[elmt].Tow_wt = ( -(phib-phia)*sd*sd + (phic-phia)*di*di )/( di*di* sd - sd*sd * di);
       } else {
-	phib= uinp.x*nt_x + uinp.y*nt_y + uinp.z*nt_z;
-	phic= uinp2.x*nt_x + uinp2.y*nt_y + uinp2.z*nt_z;
-	phid= uinp3.x*nt_x + uinp3.y*nt_y + uinp3.z*nt_z;
-	rhs_l[0][0] = phib-phia;
-	rhs_l[1][0] = phic-phia;
-	rhs_l[2][0] = phid-phia;
-/* 	elmtinfo[elmt].Tow_wt = detmnt(rhs_l)/dtm; */
-	elmtinfo[elmt].Tow_wt = ( -(phib-phia)*sd*sd + (phic-phia)*di*di )
-	                          /( di*di* sd - sd*sd * di);
-      }
+		phib= uinp.x*nt_x + uinp.y*nt_y + uinp.z*nt_z;
+		phic= uinp2.x*nt_x + uinp2.y*nt_y + uinp2.z*nt_z;
+		phid= uinp3.x*nt_x + uinp3.y*nt_y + uinp3.z*nt_z;
+		rhs_l[0][0] = phib-phia;
+		rhs_l[1][0] = phic-phia;
+		rhs_l[2][0] = phid-phia;
+	/* 	elmtinfo[elmt].Tow_wt = detmnt(rhs_l)/dtm; */
+		elmtinfo[elmt].Tow_wt = ( -(phib-phia)*sd*sd + (phic-phia)*di*di )/( di*di* sd - sd*sd * di);
+	  }
       
 /*       if (di>1e-10) { */
 /*       elmtinfo[elmt].Tow_ws =   ((uinp.x-cv1)*ns_x +  */
@@ -3482,8 +4235,7 @@ PetscErrorCode Calc_fsi_surf_stress_advanced(IBMInfo *ibminfo, UserCtx *user, IB
 /* 	PetscPrintf(PETSC_COMM_WORLD, "zero di %le ",di); */
 /*       }       */
 
-     if (elmt==1124 || elmt==1110 || elmt==1395 || elmt==1179) 
-      PetscPrintf(PETSC_COMM_SELF, "intp Tow_t %d %d %le %le %le %le %le %le \n",elmt,elmtinfo[elmt].Need3rdPoint,elmtinfo[elmt].Tow_wt,phia,phib,phic,di,sd);
+     if (elmt==1124 || elmt==1110 || elmt==1395 || elmt==1179)  PetscPrintf(PETSC_COMM_SELF, "intp Tow_t %d %d %le %le %le %le %le %le \n",elmt,elmtinfo[elmt].Need3rdPoint,elmtinfo[elmt].Tow_wt,phia,phib,phic,di,sd);
 /*       PetscPrintf(PETSC_COMM_SELF, "intp Tow_t %d %le %le %le %le %le \n",elmt,elmtinfo[elmt].Tow_wt,nt_x,nt_y,nt_z,di); */
      /*  PetscPrintf(PETSC_COMM_SELF, "intp Tow_s %d %le %le %le %le %le \n",elmt,elmtinfo[elmt].Tow_ws,uinp.x,uinp.y,uinp.z,di); */
 /*       PetscPrintf(PETSC_COMM_SELF, "intp Tow_s %d %le %le %le %le %le \n",elmt,elmtinfo[elmt].Tow_ws,ns_x,ns_y,ns_z,di); */
@@ -3494,71 +4246,72 @@ PetscErrorCode Calc_fsi_surf_stress_advanced(IBMInfo *ibminfo, UserCtx *user, IB
 
   PetscInt rank;
   PetscInt n_v=ibm->n_v;
-  PetscInt ti=0;
+  //PetscInt ti=0;
   MPI_Comm_rank(PETSC_COMM_WORLD, &rank);
   if (!rank) {
     //if (ti == (ti/tiout)*tiout) {
       FILE *f;
       char filen[80];
-      sprintf(filen, "Stress%3.3d.dat",ti);
+      sprintf(filen, "Stress_Calc_fsi_surf_stress_advanced%3.3d.dat",ti);
       f = fopen(filen, "w");
+	  PetscFPrintf(PETSC_COMM_WORLD, f, "TITLE=\"3D TRIANGULAR SURFACE DATA\"\n");
       PetscFPrintf(PETSC_COMM_WORLD, f, "Variables=x,y,z,tow_t,tow_s,p,n_x,n_y,n_z,nt_x,nt_y,nt_z,ns_x,ns_y,ns_z,di\n");
-      PetscFPrintf(PETSC_COMM_WORLD, f, "ZONE T='TRIANGLES', N=%d, E=%d, F=FEBLOCK, ET=TRIANGLE, VARLOCATION=([1-3]=NODAL,[4-16]=CELLCENTERED)\n", n_v, n_elmt);
+      PetscFPrintf(PETSC_COMM_WORLD, f, "ZONE T=\"TRIANGLES\", N=%d, E=%d, F=FEBLOCK, ET=TRIANGLE, VARLOCATION=([1-3]=NODAL,[4-16]=CELLCENTERED)\n", n_v, n_elmt);
       for (i=0; i<n_v; i++) {
 
 	/*    ibm->x_bp[i] = ibm->x_bp0[i];
 	      ibm->y_bp[i] = ibm->y_bp0[i];
 	      ibm->z_bp[i] = ibm->z_bp0[i] + z0;*/
-	PetscFPrintf(PETSC_COMM_WORLD, f, "%e\n", ibm->x_bp[i]);
+		PetscFPrintf(PETSC_COMM_WORLD, f, "%e\n", ibm->x_bp[i]);
       }
       for (i=0; i<n_v; i++) {
-	PetscFPrintf(PETSC_COMM_WORLD, f, "%e\n", ibm->y_bp[i]);
+		PetscFPrintf(PETSC_COMM_WORLD, f, "%e\n", ibm->y_bp[i]);
       }
       for (i=0; i<n_v; i++) {	
-	PetscFPrintf(PETSC_COMM_WORLD, f, "%e\n", ibm->z_bp[i]);
+		PetscFPrintf(PETSC_COMM_WORLD, f, "%e\n", ibm->z_bp[i]);
       }
       for (i=0; i<n_elmt; i++) {
-	PetscFPrintf(PETSC_COMM_WORLD, f, "%e\n", elmtinfo[i].Tow_wt);
+		PetscFPrintf(PETSC_COMM_WORLD, f, "%e\n", elmtinfo[i].Tow_wt);
       }
       for (i=0; i<n_elmt; i++) {
-	PetscFPrintf(PETSC_COMM_WORLD, f, "%e\n", elmtinfo[i].Tow_ws);
+		PetscFPrintf(PETSC_COMM_WORLD, f, "%e\n", elmtinfo[i].Tow_ws);
       }
       for (i=0; i<n_elmt; i++) {
-	PetscFPrintf(PETSC_COMM_WORLD, f, "%e\n", elmtinfo[i].P);
+		PetscFPrintf(PETSC_COMM_WORLD, f, "%e\n", elmtinfo[i].P);
       }
       for (i=0; i<n_elmt; i++) {
-	PetscFPrintf(PETSC_COMM_WORLD, f, "%e\n", ibm->nf_x[i]);
+		PetscFPrintf(PETSC_COMM_WORLD, f, "%e\n", ibm->nf_x[i]);
       }
       for (i=0; i<n_elmt; i++) {
-	PetscFPrintf(PETSC_COMM_WORLD, f, "%e\n", ibm->nf_y[i]);
+		PetscFPrintf(PETSC_COMM_WORLD, f, "%e\n", ibm->nf_y[i]);
       }
       for (i=0; i<n_elmt; i++) {
-	PetscFPrintf(PETSC_COMM_WORLD, f, "%e\n", ibm->nf_z[i]);
+		PetscFPrintf(PETSC_COMM_WORLD, f, "%e\n", ibm->nf_z[i]);
       }
       for (i=0; i<n_elmt; i++) {
-	PetscFPrintf(PETSC_COMM_WORLD, f, "%e\n", ibm->nt_x[i]);
+		PetscFPrintf(PETSC_COMM_WORLD, f, "%e\n", ibm->nt_x[i]);
       }
       for (i=0; i<n_elmt; i++) {
-	PetscFPrintf(PETSC_COMM_WORLD, f, "%e\n", ibm->nt_y[i]);
+		PetscFPrintf(PETSC_COMM_WORLD, f, "%e\n", ibm->nt_y[i]);
       }
       for (i=0; i<n_elmt; i++) {
-	PetscFPrintf(PETSC_COMM_WORLD, f, "%e\n", ibm->nt_z[i]);
+		PetscFPrintf(PETSC_COMM_WORLD, f, "%e\n", ibm->nt_z[i]);
       }
       for (i=0; i<n_elmt; i++) {
-	PetscFPrintf(PETSC_COMM_WORLD, f, "%e\n", ibm->ns_x[i]);
+		PetscFPrintf(PETSC_COMM_WORLD, f, "%e\n", ibm->ns_x[i]);
       }
       for (i=0; i<n_elmt; i++) {
-	PetscFPrintf(PETSC_COMM_WORLD, f, "%e\n", ibm->ns_y[i]);
+		PetscFPrintf(PETSC_COMM_WORLD, f, "%e\n", ibm->ns_y[i]);
       }
       for (i=0; i<n_elmt; i++) {
-	PetscFPrintf(PETSC_COMM_WORLD, f, "%e\n", ibm->ns_z[i]);
+		PetscFPrintf(PETSC_COMM_WORLD, f, "%e\n", ibm->ns_z[i]);
       }
       for (i=0; i<n_elmt; i++) {
-	PetscFPrintf(PETSC_COMM_WORLD, f, "%e\n", ibminfo[i].d_i);
+		PetscFPrintf(PETSC_COMM_WORLD, f, "%e\n", ibminfo[i].d_i);
       }
 
       for (i=0; i<n_elmt; i++) {
-	PetscFPrintf(PETSC_COMM_WORLD, f, "%d %d %d\n", ibm->nv1[i]+1, ibm->nv2[i]+1, ibm->nv3[i]+1);
+		PetscFPrintf(PETSC_COMM_WORLD, f, "%d %d %d\n", ibm->nv1[i]+1, ibm->nv2[i]+1, ibm->nv3[i]+1);
       }
       fclose(f);
       //}
@@ -3658,55 +4411,55 @@ PetscErrorCode ibm_Surf_stress(UserCtx *user, IBMNodes *ibm, SurfElmtInfo *elmti
       //PetscPrintf(PETSC_COMM_WORLD, "IBM_intp sk: %le %le %le %le %le %le\n",sk1,sk2,sk3,cv1,cv2,cv3);
     
       //Added 4/3/06 iman
-      if (ni>=0 && i>=lxs && i<lxe && j>=lys && j<lye && k>=lzs && k<lze) {	       
-	n_P[ni]++;
-	n_Pr[ni]=(double)(n_P[ni]);
-	//Ps=ibm->P[ni];      
-	Ps[ni]+=( p[k][j][i]);
-	     //+ (n_P-1)*Ps )/n_P;      
-/* 	- user->st/user->dt* */
-/* 	           (ibm->nf_z[ni]*(ibm->u[ni].z-ibm->u_o[ni].z) */
-/* 		   +ibm->nf_y[ni]*(ibm->u[ni].y-ibm->u_o[ni].y) */
-/* 		   +ibm->nf_x[ni]*(ibm->u[ni].x-ibm->u_o[ni].x)) */
-	  //ibm->P[ni]=Ps;
-	  //ibm->n_P[ni]=n_P;
-/* 	if (i==4) { */
-/* 	  PetscPrintf(PETSC_COMM_WORLD, "Pijk=%le, Pelm=%le, n_P=%d, %d %d %d %le\n",p[k][j][i],ibm->P[ni],ibm->n_P[ni],k,j,i,ibm->nf_x[ni]); */
-/* 	} */
-	
-	
-	cv1 = ( ibm->u[ibm->nv1[ni]].x
-		+ibm->u[ibm->nv2[ni]].x 
-		+ibm->u[ibm->nv3[ni]].x)/3.;
-	cv2 = ( ibm->u[ibm->nv1[ni]].y
-		+ibm->u[ibm->nv2[ni]].y
-		+ibm->u[ibm->nv3[ni]].y)/3.;
-	cv3 = ( ibm->u[ibm->nv1[ni]].z
-		+ibm->u[ibm->nv2[ni]].z
-		+ibm->u[ibm->nv3[ni]].z)/3.;
-	
-	ns_x= ibm->ns_x[ni];	
-	ns_y= ibm->ns_y[ni];	
-	ns_z= ibm->ns_z[ni];
-	
-	nt_x= ibm->nt_x[ni];	
-	nt_y= ibm->nt_y[ni];
-	nt_z= ibm->nt_z[ni];
-	
-	if (fabs(sb)>1e-10) {
-	Tow_ws[ni] +=((ucat[k][j][i].x-cv1)*ns_x + (ucat[k][j][i].y-cv2)*ns_y +
-		       (ucat[k][j][i].z-cv3)*ns_z)/sb;  
-	//ibm->Tow_ws[ni]=(ibm->Tow_ws[ni]*(n_P-1)+Tow_ws)/n_P;
-	
-	Tow_wt[ni] +=((ucat[k][j][i].x-cv1)*nt_x + (ucat[k][j][i].y-cv2)*nt_y +
-		(ucat[k][j][i].z-cv3)*nt_z)/sb;  
-	//ibm->Tow_wt[ni]=(ibm->Tow_wt[ni]*(n_P-1)+Tow_wt)/n_P;
+	  if (ni>=0 && i>=lxs && i<lxe && j>=lys && j<lye && k>=lzs && k<lze) {	       
+		n_P[ni]++;
+		n_Pr[ni]=(double)(n_P[ni]);
+		//Ps=ibm->P[ni];      
+		Ps[ni]+=( p[k][j][i]);
+			 //+ (n_P-1)*Ps )/n_P;      
+	/* 	- user->st/user->dt* */
+	/* 	           (ibm->nf_z[ni]*(ibm->u[ni].z-ibm->u_o[ni].z) */
+	/* 		   +ibm->nf_y[ni]*(ibm->u[ni].y-ibm->u_o[ni].y) */
+	/* 		   +ibm->nf_x[ni]*(ibm->u[ni].x-ibm->u_o[ni].x)) */
+		  //ibm->P[ni]=Ps;
+		  //ibm->n_P[ni]=n_P;
+	/* 	if (i==4) { */
+	/* 	  PetscPrintf(PETSC_COMM_WORLD, "Pijk=%le, Pelm=%le, n_P=%d, %d %d %d %le\n",p[k][j][i],ibm->P[ni],ibm->n_P[ni],k,j,i,ibm->nf_x[ni]); */
+	/* 	} */
+		
+		
+		cv1 = ( ibm->u[ibm->nv1[ni]].x
+			+ibm->u[ibm->nv2[ni]].x 
+			+ibm->u[ibm->nv3[ni]].x)/3.;
+		cv2 = ( ibm->u[ibm->nv1[ni]].y
+			+ibm->u[ibm->nv2[ni]].y
+			+ibm->u[ibm->nv3[ni]].y)/3.;
+		cv3 = ( ibm->u[ibm->nv1[ni]].z
+			+ibm->u[ibm->nv2[ni]].z
+			+ibm->u[ibm->nv3[ni]].z)/3.;
+		
+		ns_x= ibm->ns_x[ni];	
+		ns_y= ibm->ns_y[ni];	
+		ns_z= ibm->ns_z[ni];
+		
+		nt_x= ibm->nt_x[ni];	
+		nt_y= ibm->nt_y[ni];
+		nt_z= ibm->nt_z[ni];
+		
+		if (fabs(sb)>1e-10) {
+		Tow_ws[ni] +=((ucat[k][j][i].x-cv1)*ns_x + (ucat[k][j][i].y-cv2)*ns_y +
+				   (ucat[k][j][i].z-cv3)*ns_z)/sb;  
+		//ibm->Tow_ws[ni]=(ibm->Tow_ws[ni]*(n_P-1)+Tow_ws)/n_P;
+		
+		Tow_wt[ni] +=((ucat[k][j][i].x-cv1)*nt_x + (ucat[k][j][i].y-cv2)*nt_y +
+			(ucat[k][j][i].z-cv3)*nt_z)/sb;  
+		//ibm->Tow_wt[ni]=(ibm->Tow_wt[ni]*(n_P-1)+Tow_wt)/n_P;
 
-	//MPI_Bcast(&(ibm->n_[elmt]), 1, MPI_INTEGER, 0, PETSC_COMM_WORLD);
+		//MPI_Bcast(&(ibm->n_[elmt]), 1, MPI_INTEGER, 0, PETSC_COMM_WORLD);
 
-	} else {
-	  PetscPrintf(PETSC_COMM_WORLD, " sb < 1e-10 !!!!!!!!!!!!!!!\n");
-	}
+		} else {
+		  PetscPrintf(PETSC_COMM_WORLD, " sb < 1e-10 !!!!!!!!!!!!!!!\n");
+		}
       } else {
 	
       }
@@ -3725,15 +4478,15 @@ PetscErrorCode ibm_Surf_stress(UserCtx *user, IBMNodes *ibm, SurfElmtInfo *elmti
     for (nbn=0; nbn<n_elmt; nbn++) {
       elmtinfo[nbn].n_P=(int)(n_Psum[nbn]+.1);
       if (n_Psum[nbn]>1e-6){
-	elmtinfo[nbn].P=PsSum[nbn]/n_Psum[nbn];
-	elmtinfo[nbn].Tow_ws=Tow_wsSum[nbn]/n_Psum[nbn];
-	elmtinfo[nbn].Tow_wt=Tow_wtSum[nbn]/n_Psum[nbn];
-	elmtinfo[nbn].FoundAroundcell = 1;
+		elmtinfo[nbn].P=PsSum[nbn]/n_Psum[nbn];
+		elmtinfo[nbn].Tow_ws=Tow_wsSum[nbn]/n_Psum[nbn];
+		elmtinfo[nbn].Tow_wt=Tow_wtSum[nbn]/n_Psum[nbn];
+		elmtinfo[nbn].FoundAroundcell = 1;
 	//PetscPrintf(PETSC_COMM_WORLD, " n_P %d %le %le %le\n", n_Psum[nbn],PsSum[nbn],Tow_ws[nbn],Tow_wt[nbn]);
       } else {
-	elmtinfo[nbn].P=0.;
-	elmtinfo[nbn].Tow_ws=0.;
-	elmtinfo[nbn].Tow_wt=0.;
+		elmtinfo[nbn].P=0.;
+		elmtinfo[nbn].Tow_ws=0.;
+		elmtinfo[nbn].Tow_wt=0.;
       }
     }
 
@@ -4001,7 +4754,7 @@ PetscErrorCode Calc_forces(FSInfo *FSinfo, IBMNodes *ibm, SurfElmtInfo *elmtinfo
   Cp_x=0.;Cp_y=0.;Cp_z=0.;
   Cs_x=0.;Cs_y=0.;Cs_z=0.;
   for (i=0; i<n_elmt; i++) {
-    if (n_P[i]>0  && elmtinfo[i].FoundAroundcell>0) {
+    if (n_P[i]>0  && elmtinfo[i].FoundAroundcell==1) {
       Cp_x+=(-P[i]*nf_x[i])*dA[i]; 
       Cp_y+=(-P[i]*nf_y[i])*dA[i]; 
       Cp_z+=(-P[i]*nf_z[i])*dA[i]; 
@@ -4244,7 +4997,7 @@ PetscErrorCode Calc_Moments(FSInfo *FSinfo, IBMNodes *ibm, SurfElmtInfo *elmtinf
   // Calc Moments Check later for /Re scaling !!!!
   M_x=0.;M_y=0.;M_z=0.;A_tot=0.;
   for (elmt=0; elmt<n_elmt; elmt++) {
-    if (n_P[elmt]>0 && elmtinfo[elmt].FoundAroundcell>0) {
+    if (n_P[elmt]>0 && elmtinfo[elmt].FoundAroundcell==1) {
       x=ibm->cent_x[elmt]; 
       y=ibm->cent_y[elmt]; 
       z=ibm->cent_z[elmt]; 
@@ -5377,180 +6130,180 @@ PetscErrorCode Calc_forces_SI(FSInfo *fsi,UserCtx *user,
 /*       Shear Stresses (2nd & 1st order) and Shear Force */
 
       if (nvert[k+1][j][i]<2.5 && nvert[k-1][j][i]<2.5 && k+1<mz-1 && k-1>0) {
-	zet1 = 0.25*(zet[k][j][i].x+zet[k-1][j][i].x)*
-	              (kaj[k][j][i]+kaj[k-1][j][i]);
-	zet2 = 0.25*(zet[k][j][i].y+zet[k-1][j][i].y)*
-	              (kaj[k][j][i]+kaj[k-1][j][i]);
-	zet3 = 0.25*(zet[k][j][i].z+zet[k-1][j][i].z)*
-	              (kaj[k][j][i]+kaj[k-1][j][i]);
-	dwdz = (ucat[k+1][j][i].z - ucat[k-1][j][i].z)/2.*zet3;
-	dvdz = (ucat[k+1][j][i].y - ucat[k-1][j][i].y)/2.*zet3;
-	dudz = (ucat[k+1][j][i].x - ucat[k-1][j][i].x)/2.*zet3;
+		zet1 = 0.25*(zet[k][j][i].x+zet[k-1][j][i].x)*
+					  (kaj[k][j][i]+kaj[k-1][j][i]);
+		zet2 = 0.25*(zet[k][j][i].y+zet[k-1][j][i].y)*
+					  (kaj[k][j][i]+kaj[k-1][j][i]);
+		zet3 = 0.25*(zet[k][j][i].z+zet[k-1][j][i].z)*
+					  (kaj[k][j][i]+kaj[k-1][j][i]);
+		dwdz = (ucat[k+1][j][i].z - ucat[k-1][j][i].z)/2.*zet3;
+		dvdz = (ucat[k+1][j][i].y - ucat[k-1][j][i].y)/2.*zet3;
+		dudz = (ucat[k+1][j][i].x - ucat[k-1][j][i].x)/2.*zet3;
 
-	dwdy = (ucat[k+1][j][i].z - ucat[k-1][j][i].z)/2.*zet2;
-	dvdy = (ucat[k+1][j][i].y - ucat[k-1][j][i].y)/2.*zet2;
-	dudy = (ucat[k+1][j][i].x - ucat[k-1][j][i].x)/2.*zet2;
+		dwdy = (ucat[k+1][j][i].z - ucat[k-1][j][i].z)/2.*zet2;
+		dvdy = (ucat[k+1][j][i].y - ucat[k-1][j][i].y)/2.*zet2;
+		dudy = (ucat[k+1][j][i].x - ucat[k-1][j][i].x)/2.*zet2;
 
-	dwdx = (ucat[k+1][j][i].z - ucat[k-1][j][i].z)/2.*zet1;
-	dvdx = (ucat[k+1][j][i].y - ucat[k-1][j][i].y)/2.*zet1;
-	dudx = (ucat[k+1][j][i].x - ucat[k-1][j][i].x)/2.*zet1;
+		dwdx = (ucat[k+1][j][i].z - ucat[k-1][j][i].z)/2.*zet1;
+		dvdx = (ucat[k+1][j][i].y - ucat[k-1][j][i].y)/2.*zet1;
+		dudx = (ucat[k+1][j][i].x - ucat[k-1][j][i].x)/2.*zet1;
 
-      } else if (nvert[k+1][j][i]<2.5 && k+1<mz-1) {
-	zet1 = (zet[k][j][i].x)*kaj[k][j][i];
-	zet2 = (zet[k][j][i].y)*kaj[k][j][i];
-	zet3 = (zet[k][j][i].z)*kaj[k][j][i];
+		  } else if (nvert[k+1][j][i]<2.5 && k+1<mz-1) {
+		zet1 = (zet[k][j][i].x)*kaj[k][j][i];
+		zet2 = (zet[k][j][i].y)*kaj[k][j][i];
+		zet3 = (zet[k][j][i].z)*kaj[k][j][i];
 
-	dwdz = (ucat[k+1][j][i].z - ucat[k][j][i].z)*zet3;
-	dvdz = (ucat[k+1][j][i].y - ucat[k][j][i].y)*zet3;
-	dudz = (ucat[k+1][j][i].x - ucat[k][j][i].x)*zet3;
+		dwdz = (ucat[k+1][j][i].z - ucat[k][j][i].z)*zet3;
+		dvdz = (ucat[k+1][j][i].y - ucat[k][j][i].y)*zet3;
+		dudz = (ucat[k+1][j][i].x - ucat[k][j][i].x)*zet3;
 
-	dwdy = (ucat[k+1][j][i].z - ucat[k][j][i].z)*zet2;
-	dvdy = (ucat[k+1][j][i].y - ucat[k][j][i].y)*zet2;
-	dudy = (ucat[k+1][j][i].x - ucat[k][j][i].x)*zet2;
+		dwdy = (ucat[k+1][j][i].z - ucat[k][j][i].z)*zet2;
+		dvdy = (ucat[k+1][j][i].y - ucat[k][j][i].y)*zet2;
+		dudy = (ucat[k+1][j][i].x - ucat[k][j][i].x)*zet2;
 
-	dwdx = (ucat[k+1][j][i].z - ucat[k][j][i].z)*zet1;
-	dvdx = (ucat[k+1][j][i].y - ucat[k][j][i].y)*zet1;
-	dudx = (ucat[k+1][j][i].x - ucat[k][j][i].x)*zet1;
+		dwdx = (ucat[k+1][j][i].z - ucat[k][j][i].z)*zet1;
+		dvdx = (ucat[k+1][j][i].y - ucat[k][j][i].y)*zet1;
+		dudx = (ucat[k+1][j][i].x - ucat[k][j][i].x)*zet1;
 
-      } else if (nvert[k-1][j][i]<2.5 && k-1>0){
-	zet1 = (zet[k-1][j][i].x)*kaj[k-1][j][i];
-	zet2 = (zet[k-1][j][i].y)*kaj[k-1][j][i];
-	zet3 = (zet[k-1][j][i].z)*kaj[k-1][j][i];
+		  } else if (nvert[k-1][j][i]<2.5 && k-1>0){
+		zet1 = (zet[k-1][j][i].x)*kaj[k-1][j][i];
+		zet2 = (zet[k-1][j][i].y)*kaj[k-1][j][i];
+		zet3 = (zet[k-1][j][i].z)*kaj[k-1][j][i];
 
-	dwdz = (ucat[k][j][i].z - ucat[k-1][j][i].z)*zet3;
-	dvdz = (ucat[k][j][i].y - ucat[k-1][j][i].y)*zet3;
-	dudz = (ucat[k][j][i].x - ucat[k-1][j][i].x)*zet3;
+		dwdz = (ucat[k][j][i].z - ucat[k-1][j][i].z)*zet3;
+		dvdz = (ucat[k][j][i].y - ucat[k-1][j][i].y)*zet3;
+		dudz = (ucat[k][j][i].x - ucat[k-1][j][i].x)*zet3;
 
-	dwdy = (ucat[k][j][i].z - ucat[k-1][j][i].z)*zet2;
-	dvdy = (ucat[k][j][i].y - ucat[k-1][j][i].y)*zet2;
-	dudy = (ucat[k][j][i].x - ucat[k-1][j][i].x)*zet2;
+		dwdy = (ucat[k][j][i].z - ucat[k-1][j][i].z)*zet2;
+		dvdy = (ucat[k][j][i].y - ucat[k-1][j][i].y)*zet2;
+		dudy = (ucat[k][j][i].x - ucat[k-1][j][i].x)*zet2;
 
-	dwdx = (ucat[k][j][i].z - ucat[k-1][j][i].z)*zet1;
-	dvdx = (ucat[k][j][i].y - ucat[k-1][j][i].y)*zet1;
-	dudx = (ucat[k][j][i].x - ucat[k-1][j][i].x)*zet1;
+		dwdx = (ucat[k][j][i].z - ucat[k-1][j][i].z)*zet1;
+		dvdx = (ucat[k][j][i].y - ucat[k-1][j][i].y)*zet1;
+		dudx = (ucat[k][j][i].x - ucat[k-1][j][i].x)*zet1;
 
-      } else {
-	dwdz = 0.;
-	dvdz = 0.;
-	dudz = 0.;
+		  } else {
+		dwdz = 0.;
+		dvdz = 0.;
+		dudz = 0.;
 
-	dwdy = 0.;
-	dvdy = 0.;
-	dudy = 0.;
+		dwdy = 0.;
+		dvdy = 0.;
+		dudy = 0.;
 
-	dwdx = 0.;
-	dvdx = 0.;
-	dudx = 0.;
-      }
+		dwdx = 0.;
+		dvdx = 0.;
+		dudx = 0.;
+		  }
 
 
-      if (nvert[k][j+1][i]<2.5 && j+1<my-1 && nvert[k][j-1][i]<2.5 && j-1>0) {
-	eta1 = 0.25*(eta[k][j][i].x+eta[k][j-1][i].x)*
-	              (jaj[k][j][i]+jaj[k][j-1][i]);
-	eta2 = 0.25*(eta[k][j][i].y+eta[k][j-1][i].y)*
-	              (jaj[k][j][i]+jaj[k][j-1][i]);
-	eta3 = 0.25*(eta[k][j][i].z+eta[k][j-1][i].z)*
-	              (jaj[k][j][i]+jaj[k][j-1][i]);
-	dwdz += (ucat[k][j+1][i].z - ucat[k][j-1][i].z)/2.*eta3;
-	dvdz += (ucat[k][j+1][i].y - ucat[k][j-1][i].y)/2.*eta3;
-	dudz += (ucat[k][j+1][i].x - ucat[k][j-1][i].x)/2.*eta3;
+		  if (nvert[k][j+1][i]<2.5 && j+1<my-1 && nvert[k][j-1][i]<2.5 && j-1>0) {
+		eta1 = 0.25*(eta[k][j][i].x+eta[k][j-1][i].x)*
+					  (jaj[k][j][i]+jaj[k][j-1][i]);
+		eta2 = 0.25*(eta[k][j][i].y+eta[k][j-1][i].y)*
+					  (jaj[k][j][i]+jaj[k][j-1][i]);
+		eta3 = 0.25*(eta[k][j][i].z+eta[k][j-1][i].z)*
+					  (jaj[k][j][i]+jaj[k][j-1][i]);
+		dwdz += (ucat[k][j+1][i].z - ucat[k][j-1][i].z)/2.*eta3;
+		dvdz += (ucat[k][j+1][i].y - ucat[k][j-1][i].y)/2.*eta3;
+		dudz += (ucat[k][j+1][i].x - ucat[k][j-1][i].x)/2.*eta3;
 
-	dwdy += (ucat[k][j+1][i].z - ucat[k][j-1][i].z)/2.*eta2;
-	dvdy += (ucat[k][j+1][i].y - ucat[k][j-1][i].y)/2.*eta2;
-	dudy += (ucat[k][j+1][i].x - ucat[k][j-1][i].x)/2.*eta2;
+		dwdy += (ucat[k][j+1][i].z - ucat[k][j-1][i].z)/2.*eta2;
+		dvdy += (ucat[k][j+1][i].y - ucat[k][j-1][i].y)/2.*eta2;
+		dudy += (ucat[k][j+1][i].x - ucat[k][j-1][i].x)/2.*eta2;
 
-	dwdx += (ucat[k][j+1][i].z - ucat[k][j-1][i].z)/2.*eta1;
-	dvdx += (ucat[k][j+1][i].y - ucat[k][j-1][i].y)/2.*eta1;
-	dudx += (ucat[k][j+1][i].x - ucat[k][j-1][i].x)/2.*eta1;
+		dwdx += (ucat[k][j+1][i].z - ucat[k][j-1][i].z)/2.*eta1;
+		dvdx += (ucat[k][j+1][i].y - ucat[k][j-1][i].y)/2.*eta1;
+		dudx += (ucat[k][j+1][i].x - ucat[k][j-1][i].x)/2.*eta1;
 
-      } else if (nvert[k][j+1][i]<2.5 && j+1<my-1) {
-	eta1 = eta[k][j][i].x*jaj[k][j][i];
-	eta2 = eta[k][j][i].y*jaj[k][j][i];
-	eta3 = eta[k][j][i].z*jaj[k][j][i];
+		  } else if (nvert[k][j+1][i]<2.5 && j+1<my-1) {
+		eta1 = eta[k][j][i].x*jaj[k][j][i];
+		eta2 = eta[k][j][i].y*jaj[k][j][i];
+		eta3 = eta[k][j][i].z*jaj[k][j][i];
 
-	dwdz += (ucat[k][j+1][i].z - ucat[k][j][i].z)*eta3;
-	dvdz += (ucat[k][j+1][i].y - ucat[k][j][i].y)*eta3;
-	dudz += (ucat[k][j+1][i].x - ucat[k][j][i].x)*eta3;
+		dwdz += (ucat[k][j+1][i].z - ucat[k][j][i].z)*eta3;
+		dvdz += (ucat[k][j+1][i].y - ucat[k][j][i].y)*eta3;
+		dudz += (ucat[k][j+1][i].x - ucat[k][j][i].x)*eta3;
 
-	dwdy += (ucat[k][j+1][i].z - ucat[k][j][i].z)*eta2;
-	dvdy += (ucat[k][j+1][i].y - ucat[k][j][i].y)*eta2;
-	dudy += (ucat[k][j+1][i].x - ucat[k][j][i].x)*eta2;
+		dwdy += (ucat[k][j+1][i].z - ucat[k][j][i].z)*eta2;
+		dvdy += (ucat[k][j+1][i].y - ucat[k][j][i].y)*eta2;
+		dudy += (ucat[k][j+1][i].x - ucat[k][j][i].x)*eta2;
 
-	dwdx += (ucat[k][j+1][i].z - ucat[k][j][i].z)*eta1;
-	dvdx += (ucat[k][j+1][i].y - ucat[k][j][i].y)*eta1;
-	dudx += (ucat[k][j+1][i].x - ucat[k][j][i].x)*eta1;
+		dwdx += (ucat[k][j+1][i].z - ucat[k][j][i].z)*eta1;
+		dvdx += (ucat[k][j+1][i].y - ucat[k][j][i].y)*eta1;
+		dudx += (ucat[k][j+1][i].x - ucat[k][j][i].x)*eta1;
 
-      } else if (nvert[k][j-1][i]<2.5 && j-1>0){
-	eta1 = eta[k][j-1][i].x*jaj[k][j-1][i];
-	eta2 = eta[k][j-1][i].y*jaj[k][j-1][i];
-	eta3 = eta[k][j-1][i].z*jaj[k][j-1][i];
+		  } else if (nvert[k][j-1][i]<2.5 && j-1>0){
+		eta1 = eta[k][j-1][i].x*jaj[k][j-1][i];
+		eta2 = eta[k][j-1][i].y*jaj[k][j-1][i];
+		eta3 = eta[k][j-1][i].z*jaj[k][j-1][i];
 
-	dwdz += (ucat[k][j][i].z - ucat[k][j-1][i].z)*eta3;
-	dvdz += (ucat[k][j][i].y - ucat[k][j-1][i].y)*eta3;
-	dudz += (ucat[k][j][i].x - ucat[k][j-1][i].x)*eta3;
+		dwdz += (ucat[k][j][i].z - ucat[k][j-1][i].z)*eta3;
+		dvdz += (ucat[k][j][i].y - ucat[k][j-1][i].y)*eta3;
+		dudz += (ucat[k][j][i].x - ucat[k][j-1][i].x)*eta3;
 
-	dwdy += (ucat[k][j][i].z - ucat[k][j-1][i].z)*eta2;
-	dvdy += (ucat[k][j][i].y - ucat[k][j-1][i].y)*eta2;
-	dudy += (ucat[k][j][i].x - ucat[k][j-1][i].x)*eta2;
+		dwdy += (ucat[k][j][i].z - ucat[k][j-1][i].z)*eta2;
+		dvdy += (ucat[k][j][i].y - ucat[k][j-1][i].y)*eta2;
+		dudy += (ucat[k][j][i].x - ucat[k][j-1][i].x)*eta2;
 
-	dwdx += (ucat[k][j][i].z - ucat[k][j-1][i].z)*eta1;
-	dvdx += (ucat[k][j][i].y - ucat[k][j-1][i].y)*eta1;
-	dudx += (ucat[k][j][i].x - ucat[k][j-1][i].x)*eta1;
+		dwdx += (ucat[k][j][i].z - ucat[k][j-1][i].z)*eta1;
+		dvdx += (ucat[k][j][i].y - ucat[k][j-1][i].y)*eta1;
+		dudx += (ucat[k][j][i].x - ucat[k][j-1][i].x)*eta1;
       } 
 
       if (nvert[k][j][i+1]<2.5 && i+1<mx-1 && nvert[k][j][i-1]<2.5 && i-1>0) {
-	csi1 = 0.25*(csi[k][j][i].x+csi[k][j][i-1].x)*
-	              (iaj[k][j][i]+iaj[k][j][i-1]);
-	csi2 = 0.25*(csi[k][j][i].y+csi[k][j][i-1].y)*
-	              (iaj[k][j][i]+iaj[k][j][i-1]);
-	csi3 = 0.25*(csi[k][j][i].z+csi[k][j][i-1].z)*
-	              (iaj[k][j][i]+iaj[k][j][i-1]);
+		csi1 = 0.25*(csi[k][j][i].x+csi[k][j][i-1].x)*
+					  (iaj[k][j][i]+iaj[k][j][i-1]);
+		csi2 = 0.25*(csi[k][j][i].y+csi[k][j][i-1].y)*
+					  (iaj[k][j][i]+iaj[k][j][i-1]);
+		csi3 = 0.25*(csi[k][j][i].z+csi[k][j][i-1].z)*
+					  (iaj[k][j][i]+iaj[k][j][i-1]);
 
-	dwdz += (ucat[k][j][i+1].z - ucat[k][j][i-1].z)/2.*csi3;
-	dvdz += (ucat[k][j][i+1].y - ucat[k][j][i-1].y)/2.*csi3;
-	dudz += (ucat[k][j][i+1].x - ucat[k][j][i-1].x)/2.*csi3;
+		dwdz += (ucat[k][j][i+1].z - ucat[k][j][i-1].z)/2.*csi3;
+		dvdz += (ucat[k][j][i+1].y - ucat[k][j][i-1].y)/2.*csi3;
+		dudz += (ucat[k][j][i+1].x - ucat[k][j][i-1].x)/2.*csi3;
 
-	dwdy += (ucat[k][j][i+1].z - ucat[k][j][i-1].z)/2.*csi2;
-	dvdy += (ucat[k][j][i+1].y - ucat[k][j][i-1].y)/2.*csi2;
-	dudy += (ucat[k][j][i+1].x - ucat[k][j][i-1].x)/2.*csi2;
+		dwdy += (ucat[k][j][i+1].z - ucat[k][j][i-1].z)/2.*csi2;
+		dvdy += (ucat[k][j][i+1].y - ucat[k][j][i-1].y)/2.*csi2;
+		dudy += (ucat[k][j][i+1].x - ucat[k][j][i-1].x)/2.*csi2;
 
-	dwdx += (ucat[k][j][i+1].z - ucat[k][j][i-1].z)/2.*csi1;
-	dvdx += (ucat[k][j][i+1].y - ucat[k][j][i-1].y)/2.*csi1;
-	dudx += (ucat[k][j][i+1].x - ucat[k][j][i-1].x)/2.*csi1;
+		dwdx += (ucat[k][j][i+1].z - ucat[k][j][i-1].z)/2.*csi1;
+		dvdx += (ucat[k][j][i+1].y - ucat[k][j][i-1].y)/2.*csi1;
+		dudx += (ucat[k][j][i+1].x - ucat[k][j][i-1].x)/2.*csi1;
 
-      } else if (nvert[k][j][i+1]<2.5 && i+1<mx-1) {
-	csi1 = csi[k][j][i].x*iaj[k][j][i];
-	csi2 = csi[k][j][i].y*iaj[k][j][i];
-	csi3 = csi[k][j][i].z*iaj[k][j][i];
+		  } else if (nvert[k][j][i+1]<2.5 && i+1<mx-1) {
+		csi1 = csi[k][j][i].x*iaj[k][j][i];
+		csi2 = csi[k][j][i].y*iaj[k][j][i];
+		csi3 = csi[k][j][i].z*iaj[k][j][i];
 
-	dwdz += (ucat[k][j][i+1].z - ucat[k][j][i].z)*csi3;
-	dvdz += (ucat[k][j][i+1].y - ucat[k][j][i].y)*csi3;
-	dudz += (ucat[k][j][i+1].x - ucat[k][j][i].x)*csi3;
+		dwdz += (ucat[k][j][i+1].z - ucat[k][j][i].z)*csi3;
+		dvdz += (ucat[k][j][i+1].y - ucat[k][j][i].y)*csi3;
+		dudz += (ucat[k][j][i+1].x - ucat[k][j][i].x)*csi3;
 
-	dwdy += (ucat[k][j][i+1].z - ucat[k][j][i].z)*csi2;
-	dvdy += (ucat[k][j][i+1].y - ucat[k][j][i].y)*csi2;
-	dudy += (ucat[k][j][i+1].x - ucat[k][j][i].x)*csi2;
+		dwdy += (ucat[k][j][i+1].z - ucat[k][j][i].z)*csi2;
+		dvdy += (ucat[k][j][i+1].y - ucat[k][j][i].y)*csi2;
+		dudy += (ucat[k][j][i+1].x - ucat[k][j][i].x)*csi2;
 
-	dwdx += (ucat[k][j][i+1].z - ucat[k][j][i].z)*csi1;
-	dvdx += (ucat[k][j][i+1].y - ucat[k][j][i].y)*csi1;
-	dudx += (ucat[k][j][i+1].x - ucat[k][j][i].x)*csi1;
+		dwdx += (ucat[k][j][i+1].z - ucat[k][j][i].z)*csi1;
+		dvdx += (ucat[k][j][i+1].y - ucat[k][j][i].y)*csi1;
+		dudx += (ucat[k][j][i+1].x - ucat[k][j][i].x)*csi1;
 
-      } else if (nvert[k][j][i-1]<2.5 && i-1>0){
-	csi1 = csi[k][j][i-1].x*iaj[k][j][i-1];
-	csi2 = csi[k][j][i-1].y*iaj[k][j][i-1];
-	csi3 = csi[k][j][i-1].z*iaj[k][j][i-1];
+		  } else if (nvert[k][j][i-1]<2.5 && i-1>0){
+		csi1 = csi[k][j][i-1].x*iaj[k][j][i-1];
+		csi2 = csi[k][j][i-1].y*iaj[k][j][i-1];
+		csi3 = csi[k][j][i-1].z*iaj[k][j][i-1];
 
-	dwdz += (ucat[k][j][i].z - ucat[k][j][i-1].z)*csi3;
-	dvdz += (ucat[k][j][i].y - ucat[k][j][i-1].y)*csi3;
-	dudz += (ucat[k][j][i].x - ucat[k][j][i-1].x)*csi3;
+		dwdz += (ucat[k][j][i].z - ucat[k][j][i-1].z)*csi3;
+		dvdz += (ucat[k][j][i].y - ucat[k][j][i-1].y)*csi3;
+		dudz += (ucat[k][j][i].x - ucat[k][j][i-1].x)*csi3;
 
-	dwdy += (ucat[k][j][i].z - ucat[k][j][i-1].z)*csi2;
-	dvdy += (ucat[k][j][i].y - ucat[k][j][i-1].y)*csi2;
-	dudy += (ucat[k][j][i].x - ucat[k][j][i-1].x)*csi2;
+		dwdy += (ucat[k][j][i].z - ucat[k][j][i-1].z)*csi2;
+		dvdy += (ucat[k][j][i].y - ucat[k][j][i-1].y)*csi2;
+		dudy += (ucat[k][j][i].x - ucat[k][j][i-1].x)*csi2;
 
-	dwdx += (ucat[k][j][i].z - ucat[k][j][i-1].z)*csi1;
-	dvdx += (ucat[k][j][i].y - ucat[k][j][i-1].y)*csi1;
-	dudx += (ucat[k][j][i].x - ucat[k][j][i-1].x)*csi1;
+		dwdx += (ucat[k][j][i].z - ucat[k][j][i-1].z)*csi1;
+		dvdx += (ucat[k][j][i].y - ucat[k][j][i-1].y)*csi1;
+		dudx += (ucat[k][j][i].x - ucat[k][j][i-1].x)*csi1;
       }
       
       Tzz = rei * (dwdz + dwdz);
@@ -6408,7 +7161,6 @@ PetscErrorCode Calc_forces_SI(FSInfo *fsi,UserCtx *user,
     //}
 
   }
-
 /* ==================================================================================             */
 /*   Restore Working arrays */
   DAVecRestoreArray(fda, user->lCent, &cent);
@@ -6428,8 +7180,166 @@ PetscErrorCode Calc_forces_SI(FSInfo *fsi,UserCtx *user,
 
   return(0);
 }
-
 //add (toni) for FSI and floating structures 
+/*
+PetscErrorCode Calc_fsi_surf_stress_advanced_simplified(IBMInfo *ibminfo, UserCtx *user, IBMNodes *ibm, SurfElmtInfo *elmtinfo) 
+{
+  DA	        da = user->da, fda = user->fda;
+  DALocalInfo	info = user->info;
+  PetscInt	xs = info.xs, xe = info.xs + info.xm;
+  PetscInt  	ys = info.ys, ye = info.ys + info.ym;
+  PetscInt	zs = info.zs, ze = info.zs + info.zm;
+
+  PetscInt      n_elmt = ibm->n_elmt;
+  PetscInt      elmt;
+  PetscInt	ip1, ip2, ip3, jp1, jp2, jp3, kp1, kp2, kp3;
+  PetscInt	ip11, ip22, ip33, jp11, jp22, jp33, kp11, kp22, kp33;
+  PetscInt	iip1, iip2, iip3, jjp1, jjp2, jjp3, kkp1, kkp2, kkp3;
+  PetscInt	iip11, iip22, iip33, jjp11, jjp22, jjp33, kkp11, kkp22, kkp33;
+
+  PetscInt	i, j, k;
+
+  PetscReal     cr1, cr2, cr3;
+  PetscReal     cv1, cv2, cv3;
+  PetscReal     cr11, cr22, cr33;
+  PetscReal     cv11, cv22, cv33;
+  PetscReal     cs1, cs2, cs3;
+  PetscReal     cs11, cs22, cs33;
+  PetscReal     ct1, ct2, ct3;
+  PetscReal     ct11, ct22, ct33;
+  PetscReal     phia,phib,phic,phid;
+  PetscReal     di,sd,sc,sb;
+  PetscReal     nt_x, nt_y, nt_z;
+  PetscReal     ns_x, ns_y, ns_z;
+  PetscReal     ***p;
+  Cmpnts        ***ucat, uinp, uinp2, uinp3;
+  PetscReal	***nvert;
+  PetscReal     lhs[3][3], rhs_l[3][3];
+  PetscReal     dtm;
+
+  DAVecGetArray(fda, user->lUcat, &ucat);
+  DAVecGetArray(da, user->lP, &p);
+  DAVecGetArray(da, user->lNvert, &nvert);
+
+  for (elmt=0; elmt<n_elmt; elmt++) {
+    elmtinfo[elmt].P=0.;
+    elmtinfo[elmt].Tow_wt=0.;
+    elmtinfo[elmt].Tow_ws=0.;
+  }
+
+  for (elmt=0; elmt<n_elmt; elmt++) {    
+  if (elmtinfo[elmt].n_P>0  && elmtinfo[elmt].FoundAroundcell>0) {
+		ip1 = ibminfo[elmt].i1; jp1 = ibminfo[elmt].j1; kp1 = ibminfo[elmt].k1;
+		ip2 = ibminfo[elmt].i2; jp2 = ibminfo[elmt].j2; kp2 = ibminfo[elmt].k2;
+		ip3 = ibminfo[elmt].i3; jp3 = ibminfo[elmt].j3; kp3 = ibminfo[elmt].k3;
+		
+		cr1 = ibminfo[elmt].cr1; cr2 = ibminfo[elmt].cr2; cr3 = ibminfo[elmt].cr3;
+		cs1 = ibminfo[elmt].cs1; cs2 = ibminfo[elmt].cs2; cs3 = ibminfo[elmt].cs3;
+
+		ip11 = ibminfo[elmt].i11; jp11 = ibminfo[elmt].j11; kp11 = ibminfo[elmt].k11;
+		ip22 = ibminfo[elmt].i22; jp22 = ibminfo[elmt].j22; kp22 = ibminfo[elmt].k22;
+		ip33 = ibminfo[elmt].i33; jp33 = ibminfo[elmt].j33; kp33 = ibminfo[elmt].k33;
+		
+		cr11 = ibminfo[elmt].cr11; cr22 = ibminfo[elmt].cr22; cr33 = ibminfo[elmt].cr33;
+		cs11 = ibminfo[elmt].cs11; cs22 = ibminfo[elmt].cs22; cs33 = ibminfo[elmt].cs33;
+
+		iip11 = ibminfo[elmt].ii11; jjp11 = ibminfo[elmt].jj11; kkp11 = ibminfo[elmt].kk11;
+		iip22 = ibminfo[elmt].ii22; jjp22 = ibminfo[elmt].jj22; kkp22 = ibminfo[elmt].kk22;
+		iip33 = ibminfo[elmt].ii33; jjp33 = ibminfo[elmt].jj33; kkp33 = ibminfo[elmt].kk33;
+
+		iip1 = ibminfo[elmt].ii1; jjp1 = ibminfo[elmt].jj1; kkp1 = ibminfo[elmt].kk1;
+		iip2 = ibminfo[elmt].ii2; jjp2 = ibminfo[elmt].jj2; kkp2 = ibminfo[elmt].kk2;
+		iip3 = ibminfo[elmt].ii3; jjp3 = ibminfo[elmt].jj3; kkp3 = ibminfo[elmt].kk3;
+
+		ct1 = ibminfo[elmt].ct1; ct2 = ibminfo[elmt].ct2; ct3 = ibminfo[elmt].ct3;
+		ct11 = ibminfo[elmt].ct11; ct22 = ibminfo[elmt].ct22; ct33 = ibminfo[elmt].ct33;
+		
+		di  = 0.5*(ibminfo[elmt].d_i+ibminfo[elmt].d_ii); 
+		
+		if (elmtinfo[elmt].Need3rdPoint) {
+		  di = di + ibminfo[elmt].d_s; // distance to 2nd pt
+		  sd = di + ibminfo[elmt].d_ss; // distance to 3rd pt
+		} else {
+		  sd = ibminfo[elmt].d_s + di;
+		}
+
+		i=elmtinfo[elmt].icell;
+		j=elmtinfo[elmt].jcell;
+		k=elmtinfo[elmt].kcell;
+
+		if (i>=xs && i<xe && j>=ys && j<ye && k>=zs && k<ze) {
+			if (elmtinfo[elmt].Need3rdPoint) {
+			  cv1 = p[kkp1][jjp1][iip1];
+			  cv2 = p[kkp2][jjp2][iip2];
+			  cv3 = p[kkp3][jjp3][iip3];
+			  elmtinfo[elmt].P = cv1 * ct1 + cv2 * ct2 + cv3 * ct3 ;
+			} else {
+			  cv1 = p[kp1][jp1][ip1];
+			  cv2 = p[kp2][jp2][ip2];
+			  cv3 = p[kp3][jp3][ip3];
+			  cv11 = p[kp11][jp11][ip11];
+			  cv22 = p[kp22][jp22][ip22];
+			  cv33 = p[kp33][jp33][ip33];
+
+			  elmtinfo[elmt].P= 0.5*(cv1 * cr1 + cv2 * cr2 + cv3 * cr3 +
+						 cv11*cr11 + cv22*cr22 + cv33*cr33);
+			} 
+		}
+    }
+  }
+
+  PetscInt rank;
+  PetscInt n_v=ibm->n_v;
+  PetscInt ti=0;
+  MPI_Comm_rank(PETSC_COMM_WORLD, &rank);
+  if (!rank) {
+    //if (ti == (ti/tiout)*tiout) {
+      FILE *f;
+      char filen[80];
+      sprintf(filen, "Stress%3.3d.dat",ti);
+      f = fopen(filen, "w");
+      PetscFPrintf(PETSC_COMM_WORLD, f, "Variables=x,y,z,p,n_x,n_y,n_z,di\n");
+      PetscFPrintf(PETSC_COMM_WORLD, f, "ZONE T='TRIANGLES', N=%d, E=%d, F=FEBLOCK, ET=TRIANGLE, VARLOCATION=([1-3]=NODAL,[4-8]=CELLCENTERED)\n", n_v, n_elmt);
+      for (i=0; i<n_v; i++) {
+	PetscFPrintf(PETSC_COMM_WORLD, f, "%e\n", ibm->x_bp[i]);
+      }
+      for (i=0; i<n_v; i++) {
+	PetscFPrintf(PETSC_COMM_WORLD, f, "%e\n", ibm->y_bp[i]);
+      }
+      for (i=0; i<n_v; i++) {	
+	PetscFPrintf(PETSC_COMM_WORLD, f, "%e\n", ibm->z_bp[i]);
+      }
+      for (i=0; i<n_elmt; i++) {
+	PetscFPrintf(PETSC_COMM_WORLD, f, "%e\n", elmtinfo[i].P);
+      }
+      for (i=0; i<n_elmt; i++) {
+	PetscFPrintf(PETSC_COMM_WORLD, f, "%e\n", ibm->nf_x[i]);
+      }
+      for (i=0; i<n_elmt; i++) {
+	PetscFPrintf(PETSC_COMM_WORLD, f, "%e\n", ibm->nf_y[i]);
+      }
+      for (i=0; i<n_elmt; i++) {
+	PetscFPrintf(PETSC_COMM_WORLD, f, "%e\n", ibm->nf_z[i]);
+      }
+      for (i=0; i<n_elmt; i++) {
+	PetscFPrintf(PETSC_COMM_WORLD, f, "%e\n", ibminfo[i].d_i);
+      }
+
+      for (i=0; i<n_elmt; i++) {
+	PetscFPrintf(PETSC_COMM_WORLD, f, "%d %d %d\n", ibm->nv1[i]+1, ibm->nv2[i]+1, ibm->nv3[i]+1);
+      }
+      fclose(f);
+      //}
+  }
+
+  DAVecRestoreArray(da, user->lNvert, &nvert);
+  DAVecRestoreArray(fda, user->lUcat, &ucat);
+  DAVecRestoreArray(da, user->lP, &p);
+  return(0);
+
+}
+*/
+
 PetscErrorCode Calc_forces_SI_levelset(FSInfo *fsi,UserCtx *user,
 			      IBMNodes *ibm,PetscInt ti, 
 			      PetscInt ibi, PetscInt bi)
@@ -7472,5 +8382,187 @@ PetscErrorCode Calc_forces_SI_levelset(FSInfo *fsi,UserCtx *user,
   VecDestroy(Coor);
   return(0);
 }
+
+
+PetscErrorCode fsiDataForPostProcessing(IBMInfo *ibminfo, UserCtx *user, IBMNodes *ibm, SurfElmtInfo *elmtinfo)
+{
+  DA	        da = user->da, fda = user->fda;
+  DALocalInfo	info = user->info;
+  PetscInt	xs = info.xs, xe = info.xs + info.xm;
+  PetscInt  	ys = info.ys, ye = info.ys + info.ym;
+  PetscInt	zs = info.zs, ze = info.zs + info.zm;
+  PetscInt      lxs, lxe, lys, lye, lzs, lze;
+  PetscInt      mx = info.mx, my = info.my, mz = info.mz;
+
+
+  PetscInt      n_elmt = ibm->n_elmt;
+  PetscInt      elmt;
+  PetscInt	ip1, ip2, ip3, jp1, jp2, jp3, kp1, kp2, kp3;
+  PetscInt	ip11, ip22, ip33, jp11, jp22, jp33, kp11, kp22, kp33;
+  PetscInt	i, j, k;
+
+  PetscReal     cr1, cr2, cr3;
+  PetscReal     cv1, cv2, cv3;
+  PetscReal     cr11, cr22, cr33;
+  PetscReal     cv11, cv22, cv33;
+  PetscReal     cs1, cs2, cs3;
+  PetscReal     cs11, cs22, cs33;
+
+  PetscInt	iip11, iip22, iip33, jjp11, jjp22, jjp33, kkp11, kkp22, kkp33;
+  PetscInt	iip1, iip2, iip3, jjp1, jjp2, jjp3, kkp1, kkp2, kkp3;
+  PetscReal     ct1, ct2, ct3;
+  PetscReal     ct11, ct22, ct33;
+  PetscReal     ds,sd;
+
+  PetscReal     di;
+  PetscReal     nf_x, nf_y, nf_z;
+  PetscReal     nt_x, nt_y, nt_z;
+  PetscReal     ns_x, ns_y, ns_z;
+  PetscReal     ***p;
+  Cmpnts        ***ucat, uinp;
+  PetscReal	***nvert;
+  PetscReal P, Tow_ws, Tow_wt, Tow_wn;
+  
+  DAVecGetArray(fda, user->lUcat, &ucat);
+  DAVecGetArray(da, user->lP, &p);
+  DAVecGetArray(da, user->lNvert, &nvert);
+  
+  PetscInt rank;
+  MPI_Comm_rank(PETSC_COMM_WORLD, &rank);
+ 
+  lxs = xs; lxe = xe;
+  lys = ys; lye = ye;
+  lzs = zs; lze = ze;
+
+  if (xs==0) lxs = xs+1;
+  if (ys==0) lys = ys+1;
+  if (zs==0) lzs = zs+1;
+
+  if (xe==mx) lxe = xe-2;
+  if (ye==my) lye = ye-2;
+  if (ze==mz) lze = ze-2;
+ 
+for (elmt=0; elmt<n_elmt; elmt++) {
+	
+	 ip1 = 0;
+	 ip2 = 0;
+	 ip3 = 0;
+	 jp1 = 0;
+	 jp2 = 0;
+	 jp3 = 0;
+	 kp1 = 0;
+	 kp2 = 0;
+	 kp3 = 0;
+	 cr1 = 0;
+	 cr2 = 0;
+	 cr3 = 0;
+
+	if (elmtinfo[elmt].n_P>0  && elmtinfo[elmt].FoundAroundcell==1) {
+	//	ip1 = ibminfo[elmt].i1; jp1 = ibminfo[elmt].j1; kp1 = ibminfo[elmt].k1;
+	//	ip2 = ibminfo[elmt].i2; jp2 = ibminfo[elmt].j2; kp2 = ibminfo[elmt].k2;
+	//	ip3 = ibminfo[elmt].i3; jp3 = ibminfo[elmt].j3; kp3 = ibminfo[elmt].k3;
+		cr1 = ibminfo[elmt].cr1; cr2 = ibminfo[elmt].cr2; cr3 = ibminfo[elmt].cr3;
+				PetscPrintf(PETSC_COMM_WORLD, " Inside ASR - X");
+
+	}
+	
+/*		MPI_Allreduce (&ip1, &ibminfo[elmt].i1, 1, MPI_INT, MPI_SUM, PETSC_COMM_WORLD);
+		MPI_Allreduce (&ip2, &ibminfo[elmt].i2, 1, MPI_INT, MPI_SUM, PETSC_COMM_WORLD);
+		MPI_Allreduce (&ip3, &ibminfo[elmt].i3, 1, MPI_INT, MPI_SUM, PETSC_COMM_WORLD);
+		MPI_Allreduce (&jp1, &ibminfo[elmt].j1, 1, MPI_INT, MPI_SUM, PETSC_COMM_WORLD);
+		MPI_Allreduce (&jp2, &ibminfo[elmt].j2, 1, MPI_INT, MPI_SUM, PETSC_COMM_WORLD);
+		MPI_Allreduce (&jp3, &ibminfo[elmt].j3, 1, MPI_INT, MPI_SUM, PETSC_COMM_WORLD);
+		MPI_Allreduce (&kp1, &ibminfo[elmt].k1, 1, MPI_INT, MPI_SUM, PETSC_COMM_WORLD);
+		MPI_Allreduce (&kp2, &ibminfo[elmt].k2, 1, MPI_INT, MPI_SUM, PETSC_COMM_WORLD);
+		MPI_Allreduce (&kp3, &ibminfo[elmt].k3, 1, MPI_INT, MPI_SUM, PETSC_COMM_WORLD);*/
+		MPI_Allreduce (&cr1, &elmtinfo[i].Tow_wt, 1, MPI_DOUBLE, MPI_SUM, PETSC_COMM_WORLD);
+		MPI_Allreduce (&cr2, &elmtinfo[i].Tow_ws, 1, MPI_DOUBLE, MPI_SUM, PETSC_COMM_WORLD);
+		MPI_Allreduce (&cr3, &elmtinfo[i].Tow_wn, 1, MPI_DOUBLE, MPI_SUM, PETSC_COMM_WORLD);
+		
+		/*
+		PetscGlobalSum (&ip1, &ibminfo[elmt].i1,PETSC_COMM_WORLD);
+		PetscGlobalSum (&ip2, &ibminfo[elmt].i2,PETSC_COMM_WORLD);
+		PetscGlobalSum (&ip3, &ibminfo[elmt].i3,PETSC_COMM_WORLD);
+		PetscGlobalSum (&jp1, &ibminfo[elmt].j1,PETSC_COMM_WORLD);
+		PetscGlobalSum (&jp2, &ibminfo[elmt].j2,PETSC_COMM_WORLD);
+		PetscGlobalSum (&jp3, &ibminfo[elmt].j3,PETSC_COMM_WORLD);
+		PetscGlobalSum (&kp1, &ibminfo[elmt].k1,PETSC_COMM_WORLD);
+		PetscGlobalSum (&kp2, &ibminfo[elmt].k2,PETSC_COMM_WORLD);
+		PetscGlobalSum (&kp3, &ibminfo[elmt].k3,PETSC_COMM_WORLD);
+		PetscGlobalSum (&cr1, &ibminfo[elmt].cr1,PETSC_COMM_WORLD);
+		PetscGlobalSum (&cr2, &ibminfo[elmt].cr2,PETSC_COMM_WORLD);
+		PetscGlobalSum (&cr3, &ibminfo[elmt].cr3,PETSC_COMM_WORLD);
+		*/
+		
+}
+		PetscPrintf(PETSC_COMM_WORLD, " Writing Post proc data");
+		  if (!rank) {
+			  FILE *f;
+			  char filen[80];
+			  sprintf(filen, "fsiDataForPostProcessing.dat");
+			  f = fopen(filen, "w");
+/*
+				for (i=0; i<n_elmt; i++) {
+				PetscFPrintf(PETSC_COMM_WORLD, f, "%d\n", ibminfo[elmt].i1);
+				}//PetscFPrintf(PETSC_COMM_WORLD, f, "\n");
+				for (i=0; i<n_elmt; i++) {
+				PetscFPrintf(PETSC_COMM_WORLD, f, "%d\n", ibminfo[elmt].i2);
+				}//PetscFPrintf(PETSC_COMM_WORLD, f, "\n");
+				for (i=0; i<n_elmt; i++) {
+				PetscFPrintf(PETSC_COMM_WORLD, f, "%d\n", ibminfo[elmt].i3);
+				}//PetscFPrintf(PETSC_COMM_WORLD, f, "\n");
+				for (i=0; i<n_elmt; i++) {
+				PetscFPrintf(PETSC_COMM_WORLD, f, "%d\n", ibminfo[elmt].j1);
+				}//PetscFPrintf(PETSC_COMM_WORLD, f, "\n");
+				for (i=0; i<n_elmt; i++) {
+				PetscFPrintf(PETSC_COMM_WORLD, f, "%d\n", ibminfo[elmt].j2);
+				}//PetscFPrintf(PETSC_COMM_WORLD, f, "\n");
+				for (i=0; i<n_elmt; i++) {
+				PetscFPrintf(PETSC_COMM_WORLD, f, "%d\n", ibminfo[elmt].j3);
+				}//PetscFPrintf(PETSC_COMM_WORLD, f, "\n");
+				for (i=0; i<n_elmt; i++) {
+				PetscFPrintf(PETSC_COMM_WORLD, f, "%d\n", ibminfo[elmt].k1);
+				}//PetscFPrintf(PETSC_COMM_WORLD, f, "\n");
+				for (i=0; i<n_elmt; i++) {
+				PetscFPrintf(PETSC_COMM_WORLD, f, "%d\n", ibminfo[elmt].k2);
+				}//PetscFPrintf(PETSC_COMM_WORLD, f, "\n");
+				for (i=0; i<n_elmt; i++) {
+				PetscFPrintf(PETSC_COMM_WORLD, f, "%d\n", ibminfo[elmt].k3);
+				}//PetscFPrintf(PETSC_COMM_WORLD, f, "\n");
+				for (i=0; i<n_elmt; i++) {
+				PetscFPrintf(PETSC_COMM_WORLD, f, "%e\n", ibminfo[elmt].cr1);
+				}//PetscFPrintf(PETSC_COMM_WORLD, f, "\n");
+				for (i=0; i<n_elmt; i++) {
+				PetscFPrintf(PETSC_COMM_WORLD, f, "%e\n", ibminfo[elmt].cr2);
+				}//PetscFPrintf(PETSC_COMM_WORLD, f, "\n");
+				for (i=0; i<n_elmt; i++) {
+				PetscFPrintf(PETSC_COMM_WORLD, f, "%e\n", ibminfo[elmt].cr3);
+				}//PetscFPrintf(PETSC_COMM_WORLD, f, "\n");
+				
+				
+				*/
+				
+						  for (i=0; i<n_elmt; i++) {
+		PetscFPrintf(PETSC_COMM_WORLD, f, "%e\n", elmtinfo[i].Tow_wt);
+		  }//PetscFPrintf(PETSC_COMM_WORLD, f, "\n");
+		  for (i=0; i<n_elmt; i++) {
+		PetscFPrintf(PETSC_COMM_WORLD, f, "%e\n", elmtinfo[i].Tow_ws);
+		  }//PetscFPrintf(PETSC_COMM_WORLD, f, "\n");
+		  for (i=0; i<n_elmt; i++) {
+		PetscFPrintf(PETSC_COMM_WORLD, f, "%e\n", elmtinfo[i].Tow_wn);
+		  }//PetscFPrintf(PETSC_COMM_WORLD, f, "\n");
+				
+		  
+			  fclose(f);
+		  }
+
+  DAVecRestoreArray(da, user->lNvert, &nvert);
+  DAVecRestoreArray(fda, user->lUcat, &ucat);
+  DAVecRestoreArray(da, user->lP, &p);
+  return(0);
+
+}
+
+
 
 //end (toni)

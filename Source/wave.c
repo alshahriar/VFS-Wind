@@ -193,7 +193,7 @@ The main control option is defined by "wave_momentum_source" which can adopt one
 	MPI_Comm_rank(PETSC_COMM_WORLD, &rank);
 	int NZMOD,NXMOD;
 	int WAVE_ti=user[0].wave_inf[0].WAVE_ti;
-	if(!rank)printf("Reading WAVE info for WAVE time step: \n",WAVE_ti);	
+	if(!rank) printf("Reading WAVE info for WAVE time step: %d \n", WAVE_ti);	
 	int ind_max=0;
 	//double L_ref=1000.0;
 	if(wave_momentum_source==1){

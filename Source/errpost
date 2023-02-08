@@ -1,0 +1,48 @@
+[0]PETSC ERROR: --------------------- Error Message ------------------------------------
+[0]PETSC ERROR:   !
+[0]PETSC ERROR: Unable to open Options File control.dat!
+[0]PETSC ERROR: ------------------------------------------------------------------------
+[0]PETSC ERROR: Petsc Release Version 3.1.0, Patch 6, Tue Nov 16 17:02:32 CST 2010
+[0]PETSC ERROR: See docs/changes/index.html for recent updates.
+[0]PETSC ERROR: See docs/faq.html for hints about trouble shooting.
+[0]PETSC ERROR: See docs/index.html for manual pages.
+[0]PETSC ERROR: ------------------------------------------------------------------------
+[0]PETSC ERROR: /gpfs/research/mecfd/Shahriar/vfsSrc/src2/dataASR on a linux-gnu named hpc-m31-6-3.local by as17r Tue Oct 12 16:17:49 2021
+[0]PETSC ERROR: Libraries linked from /panfs/storage.local/ame/mecfd/SourceCodes/petsc-3.1-p6DEBUG/install2/lib
+[0]PETSC ERROR: Configure run at Sat Aug 12 15:39:03 2017
+[0]PETSC ERROR: Configure options --with-cc=mpicc --with-cxx=mpicxx --with-fc=mpif90 --download-f-blas-lapack=1 --download-hypre=1 --prefix=/panfs/storage.local/ame/mecfd/SourceCodes/petsc-3.1-p6DEBUG/install2 --with-shared=0 --with-debugging=1 --with-x=0
+[0]PETSC ERROR: ------------------------------------------------------------------------
+[0]PETSC ERROR: PetscOptionsInsertFile() line 440 in src/sys/objects/options.c
+nv_once=0
+[0]PETSC ERROR: ------------------------------------------------------------------------
+[0]PETSC ERROR: Caught signal number 11 SEGV: Segmentation Violation, probably memory access out of range
+[0]PETSC ERROR: Try option -start_in_debugger or -on_error_attach_debugger
+[0]PETSC ERROR: or see http://www.mcs.anl.gov/petsc/petsc-as/documentation/troubleshooting.html#Signal[0]PETSC ERROR: or try http://valgrind.org on GNU/linux and Apple Mac OS X to find memory corruption errors
+[0]PETSC ERROR: likely location of problem given in stack below
+[0]PETSC ERROR: ---------------------  Stack Frames ------------------------------------
+[0]PETSC ERROR: Note: The EXACT line numbers in the stack are not available,
+[0]PETSC ERROR:       INSTEAD the line number of the start of the function
+[0]PETSC ERROR:       is given.
+[0]PETSC ERROR: [0] PetscOptionsInsertFile line 364 src/sys/objects/options.c
+[0]PETSC ERROR: --------------------- Error Message ------------------------------------
+[0]PETSC ERROR: Signal received!
+[0]PETSC ERROR: ------------------------------------------------------------------------
+[0]PETSC ERROR: Petsc Release Version 3.1.0, Patch 6, Tue Nov 16 17:02:32 CST 2010
+[0]PETSC ERROR: See docs/changes/index.html for recent updates.
+[0]PETSC ERROR: See docs/faq.html for hints about trouble shooting.
+[0]PETSC ERROR: See docs/index.html for manual pages.
+[0]PETSC ERROR: ------------------------------------------------------------------------
+[0]PETSC ERROR: /gpfs/research/mecfd/Shahriar/vfsSrc/src2/dataASR on a linux-gnu named hpc-m31-6-3.local by as17r Tue Oct 12 16:17:49 2021
+[0]PETSC ERROR: Libraries linked from /panfs/storage.local/ame/mecfd/SourceCodes/petsc-3.1-p6DEBUG/install2/lib
+[0]PETSC ERROR: Configure run at Sat Aug 12 15:39:03 2017
+[0]PETSC ERROR: Configure options --with-cc=mpicc --with-cxx=mpicxx --with-fc=mpif90 --download-f-blas-lapack=1 --download-hypre=1 --prefix=/panfs/storage.local/ame/mecfd/SourceCodes/petsc-3.1-p6DEBUG/install2 --with-shared=0 --with-debugging=1 --with-x=0
+[0]PETSC ERROR: ------------------------------------------------------------------------
+[0]PETSC ERROR: User provided function() line 0 in unknown directory unknown file
+--------------------------------------------------------------------------
+MPI_ABORT was invoked on rank 0 in communicator MPI_COMM_WORLD
+with errorcode 59.
+
+NOTE: invoking MPI_ABORT causes Open MPI to kill all MPI processes.
+You may or may not see output from other processes, depending on
+exactly when Open MPI kills them.
+--------------------------------------------------------------------------

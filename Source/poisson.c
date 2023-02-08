@@ -27,7 +27,7 @@ double time_coeff()
 	else return 1.5;
   }
   else return 1.;
-	
+	 
 };
 		
 PetscErrorCode MyKSPMonitor(KSP ksp, PetscInt n, PetscReal rnom, void *dummy)
@@ -4150,6 +4150,8 @@ PetscErrorCode Do_averaging(UserCtx *user)
 	PetscInt i, j, k;
   
 	PetscInt	lxs, lxe, lys, lye, lzs, lze;
+	
+	double vort_x, vort_y, vort_z;
 
 	lxs = xs; lxe = xe;
 	lys = ys; lye = ye;
@@ -4165,8 +4167,9 @@ PetscErrorCode Do_averaging(UserCtx *user)
   
 	Cmpnts ***ucat, ***u_cross_sum, ***csi, ***eta, ***zet;
 	Cmpnts ***u2sum, ***vort_sum, ***vort2_sum, ***uuusum, ***du2sum;
-	PetscReal ***p2sum, ***p, ***k_sum, ***lnu_t, ***nut_sum,  ***aj, ***nvert, ***udpsum, ***taussum;
+	PetscReal ***p2sum, ***p, ***k_sum, ***lnu_t, ***nut_sum,  ***aj, ***nvert, ***udpsum, ***qsum, ***taussum;
 	Cmpnts2 ***ko;
+	Cmpnts ***u_wx_sum, ***u_wy_sum, ***u_wz_sum;
 	
 	VecAXPY(user->Ucat_sum, 1., user->Ucat);
 	VecAXPY(user->P_sum, 1., user->P);
@@ -4206,11 +4209,18 @@ PetscErrorCode Do_averaging(UserCtx *user)
 		}
 		
 		DAVecGetArray(user->da, user->Udp_sum, &udpsum);
+		DAVecGetArray(user->da, user->Q_sum, &qsum);
 		DAVecGetArray(user->fda, user->dU2_sum, &du2sum);
 		DAVecGetArray(user->fda, user->UUU_sum, &uuusum);
 
 		DAVecGetArray(user->fda, user->Vort_sum, &vort_sum);
 		DAVecGetArray(user->fda, user->Vort_square_sum, &vort2_sum);
+	}
+	
+	if(averaging>=4) {
+		DAVecGetArray(user->fda, user->Ucat_wx_sum, &u_wx_sum);
+		DAVecGetArray(user->fda, user->Ucat_wy_sum, &u_wy_sum);
+		DAVecGetArray(user->fda, user->Ucat_wz_sum, &u_wz_sum);	
 	}
 	
 	for (k=lzs; k<lze; k++)
@@ -4243,6 +4253,10 @@ PetscErrorCode Do_averaging(UserCtx *user)
 			double du_dx, du_dy, du_dz, dv_dx, dv_dy, dv_dz, dw_dx, dw_dy, dw_dz;
 			double dpdc, dpde, dpdz;
 			double dp_dx, dp_dy, dp_dz;
+			
+			double Sxx, Sxy, Sxz, Syx, Syy, Syz, Szx, Szy, Szz;
+			double w11, w12, w13, w21, w22, w23, w31, w32, w33;
+			double so, wo;
 
 			double csi0 = csi[k][j][i].x, csi1 = csi[k][j][i].y, csi2 = csi[k][j][i].z;
 			double eta0= eta[k][j][i].x, eta1 = eta[k][j][i].y, eta2 = eta[k][j][i].z;
@@ -4254,7 +4268,7 @@ PetscErrorCode Do_averaging(UserCtx *user)
 			Compute_du_dxyz ( csi0, csi1, csi2, eta0, eta1, eta2, zet0, zet1, zet2, ajc, dudc, dvdc, dwdc, dude, dvde, dwde, dudz, dvdz, dwdz, &du_dx, &dv_dx, &dw_dx, &du_dy, &dv_dy, &dw_dy, &du_dz, &dv_dz, &dw_dz );
 			Compute_dscalar_dxyz ( csi0, csi1, csi2, eta0, eta1, eta2, zet0, zet1, zet2, ajc, dpdc, dpde, dpdz, &dp_dx, &dp_dy, &dp_dz);
 
-			double vort_x = dw_dy - dv_dz, vort_y = du_dz - dw_dx, vort_z = dv_dx - du_dy;
+			vort_x = dw_dy - dv_dz, vort_y = du_dz - dw_dx, vort_z = dv_dx - du_dy;
 			
 			vort_sum[k][j][i].x += vort_x;
 			vort_sum[k][j][i].y += vort_y;
@@ -4263,7 +4277,7 @@ PetscErrorCode Do_averaging(UserCtx *user)
 			vort2_sum[k][j][i].x += vort_x*vort_x;
 			vort2_sum[k][j][i].y += vort_y*vort_y;
 			vort2_sum[k][j][i].z += vort_z*vort_z;
-
+			
 			udpsum[k][j][i] += U * dp_dx + V * dp_dy + W * dp_dz;
 
 			du2sum[k][j][i].x += pow(du_dx, 2.) + pow(du_dy, 2.) + pow(du_dz, 2.);
@@ -4273,14 +4287,44 @@ PetscErrorCode Do_averaging(UserCtx *user)
 			uuusum[k][j][i].x += (U*U + V*V + W*W) * U;
 			uuusum[k][j][i].y += (U*U + V*V + W*W) * V;
 			uuusum[k][j][i].z += (U*U + V*V + W*W) * W;
-			
+		
+			Sxx = 0.5*( du_dx + du_dx ), Sxy = 0.5*(du_dy + dv_dx), Sxz = 0.5*(du_dz + dw_dx);
+			Syx = Sxy, Syy = 0.5*(dv_dy + dv_dy),    Syz = 0.5*(dv_dz + dw_dy);
+			Szx = Sxz, Szy=Syz, Szz = 0.5*(dw_dz + dw_dz);
+			so = Sxx*Sxx + Sxy*Sxy + Sxz*Sxz + Syx*Syx + Syy*Syy + Syz*Syz + Szx*Szx + Szy*Szy + Szz*Szz;
+			w11 = 0;
+			w12 = 0.5*(du_dy - dv_dx);
+			w13 = 0.5*(du_dz - dw_dx);
+			w21 = -w12;
+			w22 = 0.;
+			w23 = 0.5*(dv_dz - dw_dy);
+			w31 = -w13;
+			w32 = -w23;
+			w33 = 0.;
+			wo = w11*w11 + w12*w12 + w13*w13 + w21*w21 + w22*w22 + w23*w23 + w31*w31 + w32*w32 + w33*w33;
+			qsum[k][j][i] += (wo - so) / 2.;
+
 			if(les) {
-				double Sxx = 0.5*( du_dx + du_dx ), Sxy = 0.5*(du_dy + dv_dx), Sxz = 0.5*(du_dz + dw_dx);
-				double Syx = Sxy, Syy = 0.5*(dv_dy + dv_dy),	Syz = 0.5*(dv_dz + dw_dy);
-				double Szx = Sxz, Szy=Syz, Szz = 0.5*(dw_dz + dw_dz);
+				Sxx = 0.5*( du_dx + du_dx ), Sxy = 0.5*(du_dy + dv_dx), Sxz = 0.5*(du_dz + dw_dx);
+				Syx = Sxy, Syy = 0.5*(dv_dy + dv_dy),	Syz = 0.5*(dv_dz + dw_dy);
+				Szx = Sxz, Szy=Syz, Szz = 0.5*(dw_dz + dw_dz);
 				double SS = Sxx*Sxx + Sxy*Sxy + Sxz*Sxz + Syx*Syx + Syy*Syy + Syz*Syz + Szx*Szx + Szy*Szy + Szz*Szz;
 				taussum[k][j][i] += 2. * lnu_t[k][j][i] * SS;
 			}
+		}
+		
+		if(averaging>=4) {
+			u_wx_sum[k][j][i].x += ucat[k][j][i].x*vort_x;
+			u_wx_sum[k][j][i].y += ucat[k][j][i].y*vort_x;
+			u_wx_sum[k][j][i].z += ucat[k][j][i].z*vort_x;
+			
+			u_wy_sum[k][j][i].x += ucat[k][j][i].x*vort_y;
+			u_wy_sum[k][j][i].y += ucat[k][j][i].y*vort_y;
+			u_wy_sum[k][j][i].z += ucat[k][j][i].z*vort_y;
+			
+			u_wz_sum[k][j][i].x += ucat[k][j][i].x*vort_z;
+			u_wz_sum[k][j][i].y += ucat[k][j][i].y*vort_z;
+			u_wz_sum[k][j][i].z += ucat[k][j][i].z*vort_z;
 		}
 		
 		u_cross_sum[k][j][i].x += ucat[k][j][i].x * ucat[k][j][i].y;	// uv
@@ -4317,12 +4361,17 @@ PetscErrorCode Do_averaging(UserCtx *user)
 			DAVecRestoreArray(user->da, user->tauS_sum, &taussum);
 		}
 		DAVecRestoreArray(user->da, user->Udp_sum, &udpsum);
+		DAVecRestoreArray(user->da, user->Q_sum, &qsum);
 		DAVecRestoreArray(user->fda, user->dU2_sum, &du2sum);
 		DAVecRestoreArray(user->fda, user->UUU_sum, &uuusum);
 		DAVecRestoreArray(user->fda, user->Vort_sum, &vort_sum);
 		DAVecRestoreArray(user->fda, user->Vort_square_sum, &vort2_sum);
 	}
-	
+	if(averaging>=4) {
+		DAVecRestoreArray(user->fda, user->Ucat_wx_sum, &u_wx_sum);
+		DAVecRestoreArray(user->fda, user->Ucat_wy_sum, &u_wy_sum);
+		DAVecRestoreArray(user->fda, user->Ucat_wz_sum, &u_wz_sum);		
+	}
 	
 	int rank;
 	MPI_Comm_rank(PETSC_COMM_WORLD, &rank);

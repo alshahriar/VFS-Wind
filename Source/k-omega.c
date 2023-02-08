@@ -1378,9 +1378,13 @@ void K_Omega_BC(UserCtx *user)
 			K_Omega[k-1][j][i].x = std::max ( K_Omega[k-1][j][i].x, 0. );
 			K_Omega[k-1][j][i].y = std::max ( K_Omega[k-1][j][i].y, 1.e-4);
 		}
-		else if ( user->bctype[4]==5 && k==1 && nvert[k][j][i]<0.1) {	// inflow
+		else if ( user->bctype[4]==5 && k==1 && nvert[k][j][i]<0.1) {	// inflow in +Z
 			K_Omega[k-1][j][i].y = 2*C1 - K_Omega[k][j][i].y;
 			K_Omega[k-1][j][i].x = 2*pow ( 10.0, -C2 ) / ren * C1 - K_Omega[k][j][i].x;
+		}
+		else if ( user->bctype[2]==5 && j==1 && nvert[k][j][i]<0.1) {	// inflow in +Y ASR 
+			K_Omega[k][j-1][i].y = 2*C1 - K_Omega[k][j][i].y; // ?? z or x - next line z or x
+			K_Omega[k][j-1][i].x = 2*pow ( 10.0, -C2 ) / ren * C1 - K_Omega[k][j][i].x;
 		}
 		
 		// slip
@@ -1391,11 +1395,14 @@ void K_Omega_BC(UserCtx *user)
 		if ( user->bctype[4] == 10 && k==1 ) K_Omega[k-1][j][i] = K_Omega[k][j][i];
 		if ( user->bctype[5] == 10 && k==mz-2 ) K_Omega[k+1][j][i] = K_Omega[k][j][i];
 			
-		// outflow
+		// outflow +Z-dir
 		if ( user->bctype[5] == 4 && k==mz-2 ) {
 			K_Omega[k+1][j][i] = K_Omega[k][j][i];
 		}
-		
+		// outflow +Y-dir ASR
+		if ( user->bctype[3] == 4 && j==my-2 ) {
+			K_Omega[k][j+1][i] = K_Omega[k][j][i];
+		}
 		// couette
 		if ( user->bctype[3] == 12 && j==my-2 ) {
 			double dist = distance[k][j][i];
@@ -1599,6 +1606,7 @@ void K_Omega_BC(UserCtx *user)
 				if ( K_Omega[k][j][i].x < 0 ) K_Omega[k][j][i].x = utau*utau/sqrt(0.09);
 			}
 			if(user->bctype[4]==5 && k==1) K_Omega[k][j][i]=K_Omega[k-1][j][i];
+			if(user->bctype[2]==5 && j==1) K_Omega[k][j][i]=K_Omega[k][j-1][i];
 		};
 	}
 	

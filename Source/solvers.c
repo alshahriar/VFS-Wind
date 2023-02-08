@@ -67,7 +67,9 @@ PetscErrorCode Struc_Solver(UserMG *usermg,IBMNodes *ibm,
     for (bi=0; bi<block_number; bi++){
       for (ibi=0;ibi<NumberOfBodies;ibi++){
 				if (levelset) Calc_forces_SI_levelset(&fsi[ibi],&(user[bi]),&ibm[ibi], ti, ibi, bi);
-				else Calc_forces_SI(&fsi[ibi],&(user[bi]),&ibm[ibi], ti, ibi, bi);
+				else {
+					Calc_forces_SI(&fsi[ibi],&(user[bi]),&ibm[ibi], ti, ibi, bi);
+				}
       }
       if (itr_sc==1) VecCopy(user[bi].Ucat, user[bi].Ucat_o);
       if ((MHV || movefsi || rotatefsi || fish) && itr_sc>1){
@@ -310,7 +312,7 @@ PetscErrorCode Struc_predictor(UserMG *usermg,IBMNodes *ibm,
 /* ==================================================================================             */
 /*     Flow Solver! */
 /* ==================================================================================             */
-PetscErrorCode Flow_Solver(UserMG *usermg,IBMNodes *ibm, FSInfo *fsi, PetscInt itr_sc, IBMNodes *wtm, ACL *acl, FSInfo *fsi_wt, IBMNodes *ibm_ACD, FSInfo *fsi_IBDelta,IBMNodes *ibm_IBDelta, IBMNodes *ibm_acl2ref, FSInfo *fsi_acl2ref, IBMNodes *ibm_nacelle, FSInfo *fsi_nacelle)
+PetscErrorCode Flow_Solver(UserMG *usermg,IBMNodes *ibm, FSInfo *fsi, PetscInt itr_sc, IBMNodes *wtm, ACL *acl, FSInfo *fsi_wt, IBMNodes *ibm_ACD, FSInfo *fsi_IBDelta,IBMNodes *ibm_IBDelta, IBMNodes *ibm_acl2ref, FSInfo *fsi_acl2ref, IBMNodes *ibm_nacelle, FSInfo *fsi_nacelle, SurfElmtInfo *elmtinfo, IBMInfo *fsi_intp)
 {
   UserCtx	*user;
   PetscInt	bi, level;
@@ -671,9 +673,11 @@ PetscErrorCode Flow_Solver(UserMG *usermg,IBMNodes *ibm, FSInfo *fsi, PetscInt i
 	if (block_number>1) {
 		Block_Interface_U(user);
 	}
+	
   for (bi=0; bi<block_number; bi++) {
     if (immersed) {
-			ibm_interpolation_advanced(&user[bi]);
+		//ibm_interpolation_advanced(&user[0]);
+		ibm_interpolation_advanced_printPressure(&user[0]);
     }
 	}
 	
@@ -689,7 +693,6 @@ PetscErrorCode Flow_Solver(UserMG *usermg,IBMNodes *ibm, FSInfo *fsi, PetscInt i
 	}
 	bi=0;
 	Calc_ShearStress(&user[0]);
- 
  	/* ==================================================================================             */
   /*    Second step of the leveset method if necessary */
 	/* ==================================================================================             */
@@ -730,7 +733,6 @@ PetscErrorCode Flow_Solver(UserMG *usermg,IBMNodes *ibm, FSInfo *fsi, PetscInt i
 		user[0].wave_inf[0].WAVE_time_since_read+=user->dt;
 	}	
 	//end (Toni)
-
 	extern PetscErrorCode KE_Output(UserCtx *user);
 	KE_Output(user);
 	int i;
@@ -746,7 +748,11 @@ PetscErrorCode Flow_Solver(UserMG *usermg,IBMNodes *ibm, FSInfo *fsi, PetscInt i
 	}
 	bi=0;
 	if (ti == (ti/tiout) * tiout) {
-		Ucont_P_Binary_Output(&(user[bi]));
+                Calc_fsi_surf_stress2(fsi_intp, user, ibm, elmtinfo); //ASR
+		Ucont_P_Binary_Output(&(user[bi]));		
+       		//write_shear_stress_ibm();
+       		//ibm_interpolation_advanced_printPressure(user);      			
+		//	Calc_fsi_surf_stress_advanced(fsi_intp, user, ibm, elmtinfo); //ASR
 	}
 	else if (tiout_ufield>0 && ti == (ti/tiout_ufield) * tiout_ufield && ti<=tiend_ufield) {
 		Ucat_Binary_Output(&(user[bi]));
